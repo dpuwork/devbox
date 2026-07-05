@@ -4,6 +4,26 @@
 # Replicates the Omaterm stack & onboarding direct-to-host without virtualization layers.
 set -euo pipefail
 
+# --- Pipe Re-execution Wrapper ---
+# Detect if the script is being piped (e.g., curl | bash) and re-execute with stdin from /dev/tty
+if [[ -z "${BASH_SOURCE[0]:-}" ]]; then
+  if [ -r /dev/tty ]; then
+    TEMP_SCRIPT="$(mktemp /tmp/setup-XXXXXX.sh)"
+    cat > "$TEMP_SCRIPT"
+    exec bash "$TEMP_SCRIPT" "$@" < /dev/tty
+  fi
+fi
+
+# Self-cleanup if running the temporary setup script
+if [[ -n "${BASH_SOURCE[0]:-}" && "${BASH_SOURCE[0]}" == /tmp/setup-* ]]; then
+  trap 'rm -f "${BASH_SOURCE[0]}"' EXIT
+fi
+
+# Fallback to xterm-256color if the current TERM's terminfo is missing on this host
+if command -v infocmp &>/dev/null && ! infocmp "${TERM:-}" &>/dev/null; then
+  export TERM=xterm-256color
+fi
+
 # Ensure we are running on a Debian or Ubuntu system
 if [ ! -f /etc/debian_version ]; then
   echo "Error: This script only supports Debian or Ubuntu systems." >&2
@@ -15,6 +35,7 @@ DEVBOX_STATE_DIR="$HOME/.local/state/devbox"
 SETUP_DONE_MARKER="$DEVBOX_STATE_DIR/setup-done"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+
 export PATH="$DEVBOX_BIN_DIR:$PATH"
 
 # Ensure crucial directories exist
@@ -25,6 +46,19 @@ mkdir -p "$DEVBOX_BIN_DIR" "$DEVBOX_STATE_DIR" "$HOME/.config"
 section() {
   echo -e "\n\033[1;34m==>\033[0m \033[1m$1\033[0m"
 }
+
+run_with_spinner() {
+  local title="$1"
+  shift
+
+  if command -v gum &>/dev/null; then
+    gum spin --spinner="dot" --title="$title" --show-error -- "$@"
+  else
+    echo "==> $title"
+    "$@"
+  fi
+}
+
 
 # --- Onboarding Prompts (Interrupt/Trap safe) ---
 finish_from_interrupt() {
@@ -39,7 +73,7 @@ gum_input_into() {
 
   set +e
   trap : INT
-  value="$(gum input "$@")"
+  value="$(gum input "$@" </dev/tty)"
   status=$?
   trap - INT
   set -e
@@ -58,7 +92,7 @@ gum_confirm() {
 
   set +e
   trap 'interrupted=1' INT
-  gum confirm "$@"
+  gum confirm "$@" </dev/tty
   status=$?
   trap - INT
   set -e
@@ -85,9 +119,8 @@ install_system_dependencies() {
   done
 
   if ((${#missing[@]} > 0)); then
-    echo "Installing missing system packages: ${missing[*]}"
-    sudo apt-get update -y
-    sudo apt-get install -y "${missing[@]}"
+    run_with_spinner "Updating system package repositories..." sudo apt-get update -y
+    run_with_spinner "Installing missing system packages (${missing[*]})..." sudo apt-get install -y "${missing[@]}"
   else
     echo "✓ Core system packages already present."
   fi
@@ -111,7 +144,11 @@ install_gum() {
     *) echo "Unsupported architecture: $arch"; exit 1 ;;
   esac
 
-  latest_version="$(curl -fsSL https://api.github.com/repos/charmbracelet/gum/releases/latest | jq -r .tag_name | sed 's/^v//')"
+  if command -v jq &>/dev/null; then
+    latest_version="$(curl -fsSL https://api.github.com/repos/charmbracelet/gum/releases/latest | jq -r .tag_name | sed 's/^v//')"
+  else
+    latest_version="$(curl -fsSL https://api.github.com/repos/charmbracelet/gum/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/^v//')"
+  fi
   download_url="https://github.com/charmbracelet/gum/releases/download/v${latest_version}/gum_${latest_version}_${os}_${arch}.tar.gz"
   
   curl -fsSL "$download_url" | tar -xz -C "$temp_dir"
@@ -125,8 +162,7 @@ install_gum() {
 install_omadots() {
   section "Checking Omadots status..."
   if [ ! -d "$HOME/.local/share/omadots" ]; then
-    echo "Omadots not found. Installing..."
-    curl -fsSL https://raw.githubusercontent.com/omacom-io/omadots/refs/heads/master/install.sh | bash
+    run_with_spinner "Installing Omadots configuration..." bash -c 'curl -fsSL https://raw.githubusercontent.com/omacom-io/omadots/refs/heads/master/install.sh | bash'
   else
     echo "✓ Omadots configuration present."
   fi
@@ -136,8 +172,7 @@ install_omadots() {
 install_mise_and_tools() {
   section "Checking Mise runtime manager..."
   if ! command -v mise &>/dev/null; then
-    echo "Mise not found. Bootstrapping locally..."
-    curl https://mise.jdx.dev/install.sh | sh
+    run_with_spinner "Bootstrapping Mise runtime manager locally..." bash -c 'curl https://mise.jdx.dev/install.sh | sh'
   fi
 
   # Activate mise for the remainder of this setup session
@@ -147,14 +182,13 @@ install_mise_and_tools() {
   section "Ensuring standard terminal tools and AI shims..."
   
   # Core terminal utilities (Mise compiles/grabs binaries directly)
-  mise use -g -y neovim starship eza zoxide fzf gh lazygit lazydocker node python
+  run_with_spinner "Installing core terminal utilities (neovim, python, node, lazygit, fzf, etc.)..." mise use -g -y neovim starship eza zoxide fzf gh lazygit lazydocker node python
 
   # AI Tooling & Shims
-  mise use -g -y opencode claude-code codex antigravity-cli aqua:modem-dev/hunk
+  run_with_spinner "Installing AI tooling and devbox shims (claude-code, codex, hunk)..." mise use -g -y opencode claude-code codex antigravity-cli aqua:modem-dev/hunk
 
   # Sync shims to ensure they are available in the PATH
-  mise reshim
-  mise install
+  run_with_spinner "Finalizing tools configuration..." bash -c 'mise reshim && mise install'
 }
 
 # --- Step 5: Mirror Configuration Profiles ---
@@ -204,7 +238,7 @@ onboard_github() {
 
   if gum_confirm "Authenticate with GitHub?"; then
     echo "Authenticating GitHub..."
-    gh auth login
+    gh auth login </dev/tty
   fi
 }
 
@@ -272,9 +306,9 @@ EOF
 }
 
 # --- Execution Pipeline ---
-echo "[dpu/devbox] setup v0.0.1"
-install_system_dependencies
+echo "[dpu/devbox] setup v0.0.2"
 install_gum
+install_system_dependencies
 install_omadots
 install_mise_and_tools
 provision_configurations
