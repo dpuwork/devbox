@@ -133,15 +133,27 @@ install_latest_tmux() {
     current_version="$(tmux -V 2>/dev/null | cut -d' ' -f2 | sed 's/[^0-9.]//g' || true)"
   fi
 
+  local latest_version
+  if command -v jq &>/dev/null; then
+    latest_version="$(curl -fsSL https://api.github.com/repos/tmux/tmux/releases/latest | jq -r .tag_name | sed 's/^v//')"
+  else
+    latest_version="$(curl -fsSL https://api.github.com/repos/tmux/tmux/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/^v//')"
+  fi
+
+  if [[ -z "$latest_version" ]]; then
+    # Fallback to a known latest stable version if the GitHub API fails or is rate-limited
+    latest_version="3.5a"
+  fi
+
   if [[ -n "$current_version" ]]; then
-    # We want at least v3.5
-    if [ "$(printf '%s\n' "3.5" "$current_version" | sort -V | head -n1)" = "3.5" ]; then
-      echo "✓ TMUX $current_version (>= 3.5) is already installed."
+    # If the current version is already >= the latest version (or at least 3.5), we skip
+    if [ "$(printf '%s\n' "$latest_version" "$current_version" | sort -V | head -n1)" = "$latest_version" ]; then
+      echo "✓ TMUX $current_version (>= $latest_version) is already installed."
       return 0
     fi
   fi
 
-  section "Installing latest TMUX from source (v3.5a)..."
+  section "Installing latest TMUX from source (v${latest_version})..."
   
   # Install build dependencies for compiling tmux
   run_with_spinner "Installing TMUX build dependencies..." \
@@ -150,15 +162,15 @@ install_latest_tmux() {
   local temp_dir
   temp_dir="$(mktemp -d)"
 
-  run_with_spinner "Downloading TMUX v3.5a source..." \
-    curl -fsSL https://github.com/tmux/tmux/releases/download/3.5a/tmux-3.5a.tar.gz -o "$temp_dir/tmux-3.5a.tar.gz"
+  run_with_spinner "Downloading TMUX v${latest_version} source..." \
+    curl -fsSL "https://github.com/tmux/tmux/releases/download/${latest_version}/tmux-${latest_version}.tar.gz" -o "$temp_dir/tmux-${latest_version}.tar.gz"
 
   run_with_spinner "Extracting TMUX source..." \
-    tar -xzf "$temp_dir/tmux-3.5a.tar.gz" -C "$temp_dir"
+    tar -xzf "$temp_dir/tmux-${latest_version}.tar.gz" -C "$temp_dir"
 
   # Run configuration and build inside the temp directory
   (
-    cd "$temp_dir/tmux-3.5a"
+    cd "$temp_dir/tmux-${latest_version}"
     run_with_spinner "Configuring TMUX..." ./configure --prefix="$HOME/.local"
     run_with_spinner "Compiling TMUX..." make -j"$(nproc 2>/dev/null || echo 2)"
     run_with_spinner "Installing TMUX to userspace..." make install
@@ -176,6 +188,7 @@ install_latest_tmux() {
     exit 1
   fi
 }
+
 
 
 # --- Step 2: Install userspace Gum CLI ---
@@ -412,7 +425,7 @@ switch_to_zsh() {
 }
 
 # --- Execution Pipeline ---
-echo "[dpu/devbox] setup v0.0.4"
+echo "[dpu/devbox] setup v0.0.5"
 install_gum
 install_system_dependencies
 install_latest_tmux
