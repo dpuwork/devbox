@@ -107,7 +107,7 @@ gum_confirm() {
 # --- Step 1: Install System Dependencies ---
 install_system_dependencies() {
   section "Checking system package prerequisites..."
-  local deps=(git curl jq tmux openssh-client build-essential unzip)
+  local deps=(git curl jq openssh-client build-essential unzip)
   local missing=()
 
   for dep in "${deps[@]}"; do
@@ -125,6 +125,58 @@ install_system_dependencies() {
     echo "✓ Core system packages already present."
   fi
 }
+
+# --- Step 1.5: Install Latest TMUX from Source ---
+install_latest_tmux() {
+  local current_version=""
+  if command -v tmux &>/dev/null; then
+    current_version="$(tmux -V 2>/dev/null | cut -d' ' -f2 | sed 's/[^0-9.]//g' || true)"
+  fi
+
+  if [[ -n "$current_version" ]]; then
+    # We want at least v3.5
+    if [ "$(printf '%s\n' "3.5" "$current_version" | sort -V | head -n1)" = "3.5" ]; then
+      echo "✓ TMUX $current_version (>= 3.5) is already installed."
+      return 0
+    fi
+  fi
+
+  section "Installing latest TMUX from source (v3.5a)..."
+  
+  # Install build dependencies for compiling tmux
+  run_with_spinner "Installing TMUX build dependencies..." \
+    sudo apt-get install -y libevent-dev libncurses-dev bison pkg-config
+
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+
+  run_with_spinner "Downloading TMUX v3.5a source..." \
+    curl -fsSL https://github.com/tmux/tmux/releases/download/3.5a/tmux-3.5a.tar.gz -o "$temp_dir/tmux-3.5a.tar.gz"
+
+  run_with_spinner "Extracting TMUX source..." \
+    tar -xzf "$temp_dir/tmux-3.5a.tar.gz" -C "$temp_dir"
+
+  # Run configuration and build inside the temp directory
+  (
+    cd "$temp_dir/tmux-3.5a"
+    run_with_spinner "Configuring TMUX..." ./configure --prefix="$HOME/.local"
+    run_with_spinner "Compiling TMUX..." make -j"$(nproc 2>/dev/null || echo 2)"
+    run_with_spinner "Installing TMUX to userspace..." make install
+  )
+
+  rm -rf "$temp_dir"
+  
+  # Verify installation
+  if [ -f "$DEVBOX_BIN_DIR/tmux" ]; then
+    local new_ver
+    new_ver="$("$DEVBOX_BIN_DIR/tmux" -V)"
+    echo "✓ TMUX $new_ver successfully installed to $DEVBOX_BIN_DIR/tmux"
+  else
+    echo "Error: TMUX installation failed." >&2
+    exit 1
+  fi
+}
+
 
 # --- Step 2: Install userspace Gum CLI ---
 install_gum() {
@@ -306,9 +358,10 @@ EOF
 }
 
 # --- Execution Pipeline ---
-echo "[dpu/devbox] setup v0.0.2"
+echo "[dpu/devbox] setup v0.0.3"
 install_gum
 install_system_dependencies
+install_latest_tmux
 install_omadots
 install_mise_and_tools
 provision_configurations
