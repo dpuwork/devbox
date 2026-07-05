@@ -107,7 +107,7 @@ gum_confirm() {
 # --- Step 1: Install System Dependencies ---
 install_system_dependencies() {
   section "Checking system package prerequisites..."
-  local deps=(git curl jq openssh-client build-essential unzip)
+  local deps=(git curl jq openssh-client build-essential unzip zsh xclip)
   local missing=()
 
   for dep in "${deps[@]}"; do
@@ -255,6 +255,19 @@ provision_configurations() {
   else
     echo "Warning: Repository starship.toml configuration not found. Skipping configuration seeding."
   fi
+
+  # Apply local TMUX patch on top of omadots
+  if [ -f "$REPO_ROOT/config/tmux.conf" ]; then
+    mkdir -p "$HOME/.config/tmux"
+    touch "$HOME/.config/tmux/tmux.conf"
+    
+    if ! grep -q "Custom Devbox TMUX Additions" "$HOME/.config/tmux/tmux.conf" 2>/dev/null; then
+      cat "$REPO_ROOT/config/tmux.conf" >> "$HOME/.config/tmux/tmux.conf"
+      echo "✓ Custom TMUX patch applied on top of omadots configuration."
+    else
+      echo "✓ Custom TMUX patch already applied."
+    fi
+  fi
 }
 
 # --- Step 6: Onboarding Flows (Interactive) ---
@@ -323,10 +336,11 @@ onboard_tailscale() {
 # --- Step 7: Shell Profile Integration ---
 configure_shell_integration() {
   section "Applying userspace shell profile additions..."
-  local shell_rcs=("$HOME/.bashrc")
-  [ -f "$HOME/.zshrc" ] && shell_rcs+=("$HOME/.zshrc")
+  local shell_rcs=("$HOME/.bashrc" "$HOME/.zshrc")
 
   for rc in "${shell_rcs[@]}"; do
+    # Ensure file exists
+    touch "$rc"
     # Add PATH configurations
     if ! grep -q 'Devbox Shell Integrations' "$rc" 2>/dev/null; then
       local sh_name="bash"
@@ -347,18 +361,58 @@ if [ -d "\$HOME/.local/share/mise/bin" ]; then
   eval "\$("\$HOME/.local/share/mise/bin/mise" activate $sh_name)"
 fi
 
+# Clipboard alias
+alias pbcopy='xclip -selection clipboard'
+
 # Auto-launch TMUX for interactive incoming SSH sessions
 if [[ -z "\$TMUX" && -n "\${SSH_CONNECTION:-}" ]]; then
   tmux attach-session -t devbox 2>/dev/null || tmux new-session -s devbox
 fi
 EOF
+    else
+      # Ensure pbcopy alias is present even on upgraded installs
+      if ! grep -q "alias pbcopy=" "$rc" 2>/dev/null; then
+        cat >> "$rc" <<EOF
+
+# Clipboard alias added in setup v0.0.4
+alias pbcopy='xclip -selection clipboard'
+EOF
+      fi
     fi
   done
   echo "✓ Shell profile integrations configured."
 }
 
+# --- Step 8: Switch default shell to Zsh ---
+switch_to_zsh() {
+  if [ "${SHELL##*/}" = "zsh" ]; then
+    echo "✓ Default shell is already ZSH."
+    return 0
+  fi
+
+  local zsh_path
+  zsh_path="$(command -v zsh || true)"
+  if [ -z "$zsh_path" ]; then
+    echo "Warning: ZSH is not installed. Cannot switch shell." >&2
+    return 1
+  fi
+
+  section "Switching default shell to ZSH..."
+  if sudo -n true 2>/dev/null; then
+    sudo chsh -s "$zsh_path" "$USER"
+    echo "✓ Default shell changed to Zsh."
+  else
+    echo "Attempting to change default shell to Zsh (may prompt for password)..."
+    if chsh -s "$zsh_path"; then
+      echo "✓ Default shell changed to Zsh."
+    else
+      echo "Warning: Failed to change default shell automatically. Please run 'chsh -s $zsh_path' manually." >&2
+    fi
+  fi
+}
+
 # --- Execution Pipeline ---
-echo "[dpu/devbox] setup v0.0.3"
+echo "[dpu/devbox] setup v0.0.4"
 install_gum
 install_system_dependencies
 install_latest_tmux
@@ -375,6 +429,8 @@ if [ ! -f "$SETUP_DONE_MARKER" ]; then
 fi
 
 configure_shell_integration
+switch_to_zsh
 
 section "Devbox userspace configuration successfully completed!"
-echo -e "\033[1;32m✓ Setup finished. Run 'source ~/.bashrc' or reconnect to launch your devbox TMUX window.\033[0m"
+echo -e "\033[1;32m✓ Setup finished. Run 'source ~/.bashrc' (or reconnect) and start zsh to launch your devbox TMUX window.\033[0m"
+
