@@ -269,7 +269,8 @@ install_mise_and_tools() {
   run_with_spinner "Installing core terminal utilities (neovim, python, node, lazygit, fzf, etc.)..." mise use -g -y neovim starship eza zoxide fzf gh lazygit lazydocker node python
 
   # AI Tooling & Shims
-  run_with_spinner "Installing AI tooling and devbox shims (claude-code, codex, hunk)..." mise use -g -y opencode claude-code codex antigravity-cli aqua:modem-dev/hunk
+  run_with_spinner "Installing AI tooling and devbox shims (claude-code, codex, hunk, paseo)..." \
+    mise use -g -y opencode claude-code codex antigravity-cli npm:@getpaseo/cli aqua:modem-dev/hunk
 
   # Sync shims to ensure they are available in the PATH
   run_with_spinner "Finalizing tools configuration..." bash -c 'mise reshim && mise install'
