@@ -59,6 +59,30 @@ run_with_spinner() {
   fi
 }
 
+sudo_preflight() {
+  if ! sudo -v; then
+    echo "Error: sudo authentication failed." >&2
+    exit 1
+  fi
+}
+
+latest_github_release() {
+  local repo="$1" fallback="${2:-}" tag=""
+
+  if command -v jq &>/dev/null; then
+    tag="$(curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null | jq -r '.tag_name // empty' 2>/dev/null || true)"
+  else
+    tag="$(curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 || true)"
+  fi
+
+  tag="${tag#v}"
+  if [[ -z "$tag" || "$tag" == "null" ]]; then
+    tag="$fallback"
+  fi
+
+  printf '%s\n' "$tag"
+}
+
 
 # --- Onboarding Prompts (Interrupt/Trap safe) ---
 finish_from_interrupt() {
@@ -111,7 +135,9 @@ install_system_dependencies() {
   local missing=()
 
   for dep in "${deps[@]}"; do
-    if ! command -v "$dep" &>/dev/null && [ "$dep" != "build-essential" ]; then
+    if [ "$dep" = "openssh-client" ] && ! command -v ssh &>/dev/null; then
+      missing+=("$dep")
+    elif ! command -v "$dep" &>/dev/null && [ "$dep" != "build-essential" ] && [ "$dep" != "openssh-client" ]; then
       missing+=("$dep")
     elif [ "$dep" = "build-essential" ] && ! dpkg -l | grep -q build-essential 2>/dev/null; then
       missing+=("build-essential")
@@ -119,6 +145,7 @@ install_system_dependencies() {
   done
 
   if ((${#missing[@]} > 0)); then
+    sudo_preflight
     run_with_spinner "Updating system package repositories..." sudo apt-get update -y
     run_with_spinner "Installing missing system packages (${missing[*]})..." sudo apt-get install -y "${missing[@]}"
   else
@@ -130,23 +157,14 @@ install_system_dependencies() {
 install_latest_tmux() {
   local current_version=""
   if command -v tmux &>/dev/null; then
-    current_version="$(tmux -V 2>/dev/null | cut -d' ' -f2 | sed 's/[^0-9.]//g' || true)"
+    current_version="$(tmux -V 2>/dev/null | awk '{print $2}' || true)"
   fi
 
   local latest_version
-  if command -v jq &>/dev/null; then
-    latest_version="$(curl -fsSL https://api.github.com/repos/tmux/tmux/releases/latest | jq -r .tag_name | sed 's/^v//')"
-  else
-    latest_version="$(curl -fsSL https://api.github.com/repos/tmux/tmux/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/^v//')"
-  fi
-
-  if [[ -z "$latest_version" ]]; then
-    # Fallback to a known latest stable version if the GitHub API fails or is rate-limited
-    latest_version="3.5a"
-  fi
+  latest_version="$(latest_github_release tmux/tmux 3.7b)"
 
   if [[ -n "$current_version" ]]; then
-    # If the current version is already >= the latest version (or at least 3.5), we skip
+    # If the current version is already >= the latest version, skip the rebuild.
     if [ "$(printf '%s\n' "$latest_version" "$current_version" | sort -V | head -n1)" = "$latest_version" ]; then
       echo "✓ TMUX $current_version (>= $latest_version) is already installed."
       return 0
@@ -156,6 +174,7 @@ install_latest_tmux() {
   section "Installing latest TMUX from source (v${latest_version})..."
   
   # Install build dependencies for compiling tmux
+  sudo_preflight
   run_with_spinner "Installing TMUX build dependencies..." \
     sudo apt-get install -y libevent-dev libncurses-dev bison pkg-config
 
@@ -209,10 +228,10 @@ install_gum() {
     *) echo "Unsupported architecture: $arch"; exit 1 ;;
   esac
 
-  if command -v jq &>/dev/null; then
-    latest_version="$(curl -fsSL https://api.github.com/repos/charmbracelet/gum/releases/latest | jq -r .tag_name | sed 's/^v//')"
-  else
-    latest_version="$(curl -fsSL https://api.github.com/repos/charmbracelet/gum/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/^v//')"
+  latest_version="$(latest_github_release charmbracelet/gum)"
+  if [[ -z "$latest_version" ]]; then
+    echo "Error: Could not determine latest Gum release version." >&2
+    exit 1
   fi
   download_url="https://github.com/charmbracelet/gum/releases/download/v${latest_version}/gum_${latest_version}_${os}_${arch}.tar.gz"
   
@@ -305,6 +324,11 @@ onboard_git() {
     git config --global user.name "$name"
     git config --global user.email "$email"
     echo "✓ Git identity configured."
+  else
+    local status=$?
+    if (( status == 130 )); then
+      finish_from_interrupt
+    fi
   fi
 }
 
@@ -317,6 +341,11 @@ onboard_github() {
   if gum_confirm "Authenticate with GitHub?"; then
     echo "Authenticating GitHub..."
     gh auth login </dev/tty
+  else
+    local status=$?
+    if (( status == 130 )); then
+      finish_from_interrupt
+    fi
   fi
 }
 
@@ -343,6 +372,11 @@ onboard_tailscale() {
     gum_input_into host_name --prompt "[tailscale] hostname: " --value "$host_name"
     sudo tailscale up --ssh --accept-routes --hostname "$host_name"
     sudo tailscale set --ssh
+  else
+    local status=$?
+    if (( status == 130 )); then
+      finish_from_interrupt
+    fi
   fi
 }
 
@@ -385,7 +419,7 @@ fi
 alias pbcopy='xclip -selection clipboard'
 
 # Auto-launch TMUX for interactive incoming SSH sessions
-if [[ -z "\$TMUX" && -n "\${SSH_CONNECTION:-}" ]]; then
+if [[ \$- == *i* && -t 0 && -t 1 && -z "\$TMUX" && -n "\${SSH_CONNECTION:-}" ]]; then
   tmux attach-session -t devbox 2>/dev/null || tmux new-session -s devbox
 fi
 # --- End Devbox Shell Integrations ---
@@ -424,8 +458,8 @@ switch_to_zsh() {
 
 # --- Execution Pipeline ---
 echo "[dpu/devbox] setup v0.0.6"
-install_gum
 install_system_dependencies
+install_gum
 install_latest_tmux
 install_omadots
 install_mise_and_tools
@@ -436,7 +470,14 @@ if [ ! -f "$SETUP_DONE_MARKER" ]; then
   onboard_git
   onboard_github
   onboard_tailscale
-  touch "$SETUP_DONE_MARKER"
+  if gum_confirm "Mark onboarding complete and skip these prompts next time?"; then
+    touch "$SETUP_DONE_MARKER"
+  else
+    status=$?
+    if (( status == 130 )); then
+      finish_from_interrupt
+    fi
+  fi
 fi
 
 configure_shell_integration
@@ -444,4 +485,3 @@ switch_to_zsh
 
 section "Devbox userspace configuration successfully completed!"
 echo -e "\033[1;32m✓ Setup finished. Run 'source ~/.zshrc' (or reconnect) to load all tools (e.g., eza, starship, nvim, fzf).\033[0m"
-
