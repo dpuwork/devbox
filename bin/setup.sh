@@ -354,12 +354,19 @@ configure_shell_integration() {
   for rc in "${shell_rcs[@]}"; do
     # Ensure file exists
     touch "$rc"
-    # Add PATH configurations
-    if ! grep -q 'Devbox Shell Integrations' "$rc" 2>/dev/null; then
-      local sh_name="bash"
-      [[ "$rc" == *zshrc ]] && sh_name="zsh"
 
-      cat >> "$rc" <<EOF
+    # Remove any existing Devbox integration block to allow clean upgrades/updates
+    if sed --version 2>&1 | grep -q GNU; then
+      sed -i '/# --- Devbox Shell Integrations ---/,/# --- End Devbox Shell Integrations ---/d' "$rc"
+    else
+      sed -i '' '/# --- Devbox Shell Integrations ---/,/# --- End Devbox Shell Integrations ---/d' "$rc"
+    fi
+
+    # Append fresh integrations at the end of the file
+    local sh_name="bash"
+    [[ "$rc" == *zshrc ]] && sh_name="zsh"
+
+    cat >> "$rc" <<EOF
 
 # --- Devbox Shell Integrations ---
 # Fallback to xterm-256color if the current TERM's terminfo is missing on this host
@@ -369,9 +376,9 @@ fi
 
 export PATH="\$HOME/.local/bin:\$PATH"
 
-if [ -d "\$HOME/.local/share/mise/bin" ]; then
-  export PATH="\$HOME/.local/share/mise/bin:\$PATH"
-  eval "\$("\$HOME/.local/share/mise/bin/mise" activate $sh_name)"
+# Activate Mise environment manager
+if command -v mise &>/dev/null; then
+  eval "\$(mise activate $sh_name)"
 fi
 
 # Clipboard alias
@@ -381,17 +388,8 @@ alias pbcopy='xclip -selection clipboard'
 if [[ -z "\$TMUX" && -n "\${SSH_CONNECTION:-}" ]]; then
   tmux attach-session -t devbox 2>/dev/null || tmux new-session -s devbox
 fi
+# --- End Devbox Shell Integrations ---
 EOF
-    else
-      # Ensure pbcopy alias is present even on upgraded installs
-      if ! grep -q "alias pbcopy=" "$rc" 2>/dev/null; then
-        cat >> "$rc" <<EOF
-
-# Clipboard alias added in setup v0.0.4
-alias pbcopy='xclip -selection clipboard'
-EOF
-      fi
-    fi
   done
   echo "✓ Shell profile integrations configured."
 }
@@ -425,7 +423,7 @@ switch_to_zsh() {
 }
 
 # --- Execution Pipeline ---
-echo "[dpu/devbox] setup v0.0.5"
+echo "[dpu/devbox] setup v0.0.6"
 install_gum
 install_system_dependencies
 install_latest_tmux
@@ -445,5 +443,5 @@ configure_shell_integration
 switch_to_zsh
 
 section "Devbox userspace configuration successfully completed!"
-echo -e "\033[1;32m✓ Setup finished. Run 'source ~/.bashrc' (or reconnect) and start zsh to launch your devbox TMUX window.\033[0m"
+echo -e "\033[1;32m✓ Setup finished. Run 'source ~/.zshrc' (or reconnect) to load all tools (e.g., eza, starship, nvim, fzf).\033[0m"
 
