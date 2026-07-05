@@ -419,9 +419,9 @@ fi
 # Clipboard alias
 alias pbcopy='xclip -selection clipboard'
 
-# Auto-launch TMUX for interactive incoming SSH sessions
+# Auto-launch TMUX for interactive incoming SSH sessions in the Developer folder
 if [[ \$- == *i* && -t 0 && -t 1 && -z "\$TMUX" && -n "\${SSH_CONNECTION:-}" ]]; then
-  tmux attach-session -t devbox 2>/dev/null || tmux new-session -s devbox
+  cd "\$HOME/Developer" && (tmux attach-session -t Work 2>/dev/null || tmux new-session -c "\$HOME/Developer" -s Work)
 fi
 # --- End Devbox Shell Integrations ---
 EOF
@@ -483,6 +483,9 @@ fi
 
 configure_shell_integration
 switch_to_zsh
+
+# Create Developer directory in userspace
+mkdir -p "$HOME/Developer"
 
 section "Devbox userspace configuration successfully completed!"
 echo -e "\033[1;32m✓ Setup finished. Run 'source ~/.zshrc' (or reconnect) to load all tools (e.g., eza, starship, nvim, fzf).\033[0m"
