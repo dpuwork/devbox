@@ -259,20 +259,24 @@ configure_tmux_customizations() {
     return 0
   fi
 
-  if grep -q "# CUSTOMIZATION" "$tmux_conf" 2>/dev/null; then
-    echo "✓ TMUX customizations already present."
-    return 0
+  section "Applying TMUX customizations..."
+
+  # Remove any existing Devbox customization block to allow clean upgrades/updates
+  if sed --version 2>&1 | grep -q GNU; then
+    sed -i '/# --- Devbox TMUX Customizations ---/,/# --- End Devbox TMUX Customizations ---/d' "$tmux_conf"
+  else
+    sed -i '' '/# --- Devbox TMUX Customizations ---/,/# --- End Devbox TMUX Customizations ---/d' "$tmux_conf"
   fi
 
-  section "Appending TMUX customizations..."
   cat >>"$tmux_conf" <<'EOF'
 
-# CUSTOMIZATION
+# --- Devbox TMUX Customizations ---
 # Copy the current pane ID via OSC 52 (propagates through nested SSH/tmux
 # straight to the local clipboard; no X server needed on this box)
 bind I run-shell "tmux set-buffer -w -- '#{pane_id}'" \; display-message "Copied pane ID #{pane_id}"
+# --- End Devbox TMUX Customizations ---
 EOF
-  echo "✓ TMUX customizations appended to $tmux_conf"
+  echo "✓ TMUX customizations applied to $tmux_conf"
 }
 
 # --- Step 4: Bootstrap Mise & Install Development Stack ---
@@ -483,7 +487,7 @@ switch_to_zsh() {
 }
 
 # --- Execution Pipeline ---
-echo "[dpu/devbox] setup v0.0.9"
+echo "[dpu/devbox] setup v0.0.10"
 install_system_dependencies
 install_gum
 install_latest_tmux
