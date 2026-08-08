@@ -33,7 +33,6 @@ fi
 DEVBOX_BIN_DIR="$HOME/.local/bin"
 DEVBOX_STATE_DIR="$HOME/.local/state/devbox"
 SETUP_DONE_MARKER="$DEVBOX_STATE_DIR/setup-done"
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 
 export PATH="$DEVBOX_BIN_DIR:$PATH"
@@ -269,38 +268,11 @@ install_mise_and_tools() {
   run_with_spinner "Installing core terminal utilities (neovim, python, node, lazygit, fzf, etc.)..." mise use -g -y neovim starship eza zoxide fzf gh lazygit lazydocker node python
 
   # AI Tooling & Shims
-  run_with_spinner "Installing AI tooling and devbox shims (claude-code, codex, hunk, paseo)..." \
-    mise use -g -y opencode claude-code codex antigravity-cli npm:@getpaseo/cli aqua:modem-dev/hunk
+  run_with_spinner "Installing AI tooling and devbox shims (claude-code, codex, hunk)..." \
+    mise use -g -y opencode claude-code codex antigravity-cli aqua:modem-dev/hunk
 
   # Sync shims to ensure they are available in the PATH
   run_with_spinner "Finalizing tools configuration..." bash -c 'mise reshim && mise install'
-}
-
-# --- Step 5: Mirror Configuration Profiles ---
-provision_configurations() {
-  section "Mirroring Devbox configuration parameters..."
-  
-  # Copy Starship configurations from repo
-  if [ -f "$REPO_ROOT/config/starship.toml" ]; then
-    mkdir -p "$HOME/.config"
-    cp -Rf "$REPO_ROOT/config/starship.toml" "$HOME/.config/starship.toml"
-    echo "✓ Starship configuration copied successfully."
-  else
-    echo "Warning: Repository starship.toml configuration not found. Skipping configuration seeding."
-  fi
-
-  # Apply local TMUX patch on top of omadots
-  if [ -f "$REPO_ROOT/config/tmux.conf" ]; then
-    mkdir -p "$HOME/.config/tmux"
-    touch "$HOME/.config/tmux/tmux.conf"
-    
-    if ! grep -q "Custom Devbox TMUX Additions" "$HOME/.config/tmux/tmux.conf" 2>/dev/null; then
-      cat "$REPO_ROOT/config/tmux.conf" >> "$HOME/.config/tmux/tmux.conf"
-      echo "✓ Custom TMUX patch applied on top of omadots configuration."
-    else
-      echo "✓ Custom TMUX patch already applied."
-    fi
-  fi
 }
 
 # --- Step 6: Onboarding Flows (Interactive) ---
@@ -458,13 +430,12 @@ switch_to_zsh() {
 }
 
 # --- Execution Pipeline ---
-echo "[dpu/devbox] setup v0.0.6"
+echo "[dpu/devbox] setup v0.0.7"
 install_system_dependencies
 install_gum
 install_latest_tmux
 install_omadots
 install_mise_and_tools
-provision_configurations
 
 # Onboarding UX Elements
 if [ ! -f "$SETUP_DONE_MARKER" ]; then
