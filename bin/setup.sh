@@ -251,6 +251,28 @@ install_omadots() {
   fi
 }
 
+# --- Step 3.5: Append TMUX Customizations (on top of Omadots) ---
+configure_tmux_customizations() {
+  local tmux_conf="$HOME/.config/tmux/tmux.conf"
+
+  if [ ! -f "$tmux_conf" ]; then
+    return 0
+  fi
+
+  if grep -q "# CUSTOMIZATION" "$tmux_conf" 2>/dev/null; then
+    echo "✓ TMUX customizations already present."
+    return 0
+  fi
+
+  section "Appending TMUX customizations..."
+  cat >>"$tmux_conf" <<'EOF'
+
+# CUSTOMIZATION
+bind I run-shell "printf '%s' '#{pane_id}' | xclip -selection clipboard" \; display-message "Copied pane ID #{pane_id}"
+EOF
+  echo "✓ TMUX customizations appended to $tmux_conf"
+}
+
 # --- Step 4: Bootstrap Mise & Install Development Stack ---
 install_mise_and_tools() {
   section "Checking Mise runtime manager..."
@@ -353,6 +375,32 @@ onboard_tailscale() {
   fi
 }
 
+# --- Step 6.5: Configure Firewall ---
+configure_firewall() {
+  section "Configuring firewall (ufw)..."
+
+  sudo_preflight
+
+  if ! command -v ufw &>/dev/null; then
+    run_with_spinner "Installing ufw..." sudo apt-get install -y ufw
+  fi
+
+  # Always allow SSH before touching default policy, so we never lock ourselves out
+  sudo ufw allow 22/tcp >/dev/null
+  # Trust the tailnet: once Tailscale is up, tailscale0 carries only tailnet-authenticated traffic
+  sudo ufw allow in on tailscale0 >/dev/null 2>&1 || true
+
+  sudo ufw default deny incoming >/dev/null
+  sudo ufw default allow outgoing >/dev/null
+
+  if sudo ufw status | grep -q "Status: active"; then
+    echo "✓ Firewall already active (SSH + Tailscale interface allowed, everything else blocked)."
+  else
+    sudo ufw --force enable >/dev/null
+    echo "✓ Firewall enabled: SSH (22/tcp) and Tailscale interface allowed, everything else blocked."
+  fi
+}
+
 # --- Step 7: Shell Profile Integration ---
 configure_shell_integration() {
   section "Applying userspace shell profile additions..."
@@ -390,6 +438,9 @@ fi
 
 # Clipboard alias
 alias pbcopy='xclip -selection clipboard'
+
+# Tailscale Serve shortcut
+alias tss='tailscale serve'
 
 # Auto-launch TMUX for interactive incoming SSH sessions in the Developer folder
 if [[ \$- == *i* && -t 0 && -t 1 && -z "\$TMUX" && -n "\${SSH_CONNECTION:-}" ]]; then
@@ -430,11 +481,12 @@ switch_to_zsh() {
 }
 
 # --- Execution Pipeline ---
-echo "[dpu/devbox] setup v0.0.7"
+echo "[dpu/devbox] setup v0.0.8"
 install_system_dependencies
 install_gum
 install_latest_tmux
 install_omadots
+configure_tmux_customizations
 install_mise_and_tools
 
 # Onboarding UX Elements
@@ -452,6 +504,7 @@ if [ ! -f "$SETUP_DONE_MARKER" ]; then
   fi
 fi
 
+configure_firewall
 configure_shell_integration
 switch_to_zsh
 

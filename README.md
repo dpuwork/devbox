@@ -24,6 +24,8 @@ curl -fsSL https://cdn.dpuwork.com/bootstrap.sh | bash
 - Pulls in Omadots for dotfiles/config
 - Installs dev tools and AI CLIs via mise (neovim, node, python, claude-code, codex, and more)
 - Walks you through logging into git and GitHub, and connecting to Tailscale with SSH
+- Turns on a firewall (ufw) that only allows SSH and Tailscale traffic, blocking everything else
+- Adds a `tss` alias for `tailscale serve`
 - Sets up your shell so tmux auto-attaches to a session called `Work` whenever you SSH in
 - Switches your default shell to zsh
 
