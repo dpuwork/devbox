@@ -268,7 +268,9 @@ configure_tmux_customizations() {
   cat >>"$tmux_conf" <<'EOF'
 
 # CUSTOMIZATION
-bind I run-shell "printf '%s' '#{pane_id}' | xclip -selection clipboard" \; display-message "Copied pane ID #{pane_id}"
+# Copy the current pane ID via OSC 52 (propagates through nested SSH/tmux
+# straight to the local clipboard; no X server needed on this box)
+bind I run-shell "tmux set-buffer -w -- '#{pane_id}'" \; display-message "Copied pane ID #{pane_id}"
 EOF
   echo "✓ TMUX customizations appended to $tmux_conf"
 }
@@ -481,7 +483,7 @@ switch_to_zsh() {
 }
 
 # --- Execution Pipeline ---
-echo "[dpu/devbox] setup v0.0.8"
+echo "[dpu/devbox] setup v0.0.9"
 install_system_dependencies
 install_gum
 install_latest_tmux
