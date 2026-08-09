@@ -5,6 +5,8 @@
 
 Minimal terminal setup for dev boxes. Rent a VM, pipe the script, work.
 
+An opinionated, ready-to-use development environment with tmux, Neovim, Tailscale, Docker, mise, and a set of TUIs and coding agents.
+
 ```bash
 curl -fsSL https://cdn.dpuwork.com/setup.sh | bash
 ```
