@@ -138,16 +138,18 @@ gum_confirm() {
 # --- Step 1: Install System Dependencies ---
 install_system_dependencies() {
   section "Checking system package prerequisites..."
-  local deps=(git curl jq openssh-client build-essential unzip zsh xclip)
+  local deps=(git curl jq openssh-client build-essential unzip zsh xclip ca-certificates)
   local missing=()
 
   for dep in "${deps[@]}"; do
     if [ "$dep" = "openssh-client" ] && ! command -v ssh &>/dev/null; then
       missing+=("$dep")
-    elif ! command -v "$dep" &>/dev/null && [ "$dep" != "build-essential" ] && [ "$dep" != "openssh-client" ]; then
+    elif ! command -v "$dep" &>/dev/null && [ "$dep" != "build-essential" ] && [ "$dep" != "openssh-client" ] && [ "$dep" != "ca-certificates" ]; then
       missing+=("$dep")
     elif [ "$dep" = "build-essential" ] && ! dpkg -l | grep -q build-essential 2>/dev/null; then
       missing+=("build-essential")
+    elif [ "$dep" = "ca-certificates" ] && ! dpkg -l | grep -q ca-certificates 2>/dev/null; then
+      missing+=("ca-certificates")
     fi
   done
 
@@ -215,6 +217,36 @@ install_latest_tmux() {
   fi
 }
 
+# --- Step 1.7: Install Docker Engine (official CE repo) ---
+install_docker_engine() {
+  if ! command -v docker &>/dev/null || ! sudo systemctl cat docker.service &>/dev/null; then
+    section "Installing Docker Engine (official CE repo)..."
+    sudo_preflight
+
+    local distro_id codename arch keyring
+    distro_id="$(. /etc/os-release && echo "$ID")"
+    codename="$(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")"
+    arch="$(dpkg --print-architecture)"
+    keyring="/etc/apt/keyrings/docker.asc"
+
+    sudo install -m 0755 -d /etc/apt/keyrings
+    sudo curl -fsSL "https://download.docker.com/linux/${distro_id}/gpg" -o "$keyring"
+    sudo chmod a+r "$keyring"
+
+    echo "deb [arch=${arch} signed-by=${keyring}] https://download.docker.com/linux/${distro_id} ${codename} stable" \
+      | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+
+    run_with_spinner "Updating package repositories..." sudo apt-get update -y
+    run_with_spinner "Installing Docker Engine, CLI, containerd, buildx, and compose plugin..." \
+      sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  else
+    echo "✓ Docker Engine already installed."
+  fi
+
+  sudo systemctl enable --now docker
+  sudo usermod -aG docker "$USER"
+  echo "✓ Docker Engine running. $USER is in the docker group (log out/in, or run 'newgrp docker', to use docker without sudo this session)."
+}
 
 
 # --- Step 2: Install userspace Gum CLI ---
@@ -518,10 +550,11 @@ switch_to_zsh() {
 }
 
 # --- Execution Pipeline ---
-echo "[dpu/devbox] setup v0.0.11"
+echo "[dpu/devbox] setup v0.0.12"
 install_system_dependencies
 install_gum
 install_latest_tmux
+install_docker_engine
 install_omadots
 configure_tmux_customizations
 install_mise_and_tools
