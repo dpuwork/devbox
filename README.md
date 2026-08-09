@@ -1,8 +1,7 @@
 <p align="center">
   <img src="assets/devbox-logo.png" alt="devbox">
 </p>
-
----
+<br/>
 
 Minimal terminal setup for dev boxes. Rent a VM, pipe the script, work.
 
