@@ -35,3 +35,22 @@ curl -fsSL https://cdn.dpuwork.com/setup.sh | bash
 10. Switches your default shell to zsh
 
 Safe to run more than once — it skips anything already set up. Your tmux session name choice is remembered, so you won't be asked again on reruns.
+
+## shortcuts
+
+### omaterm shortcuts
+
+The base tmux/Neovim (LazyVim) keybindings come from Omadots — see the full reference in the [Omaterm manual](https://learn.omacom.io/4/the-omaterm-manual/113/hotkeys).
+
+### tmux shortcuts
+
+| Hotkey | Function |
+| --- | --- |
+| `Prefix I` | Copy the current pane ID to the clipboard (via OSC 52, works through nested SSH/tmux) |
+
+### aliases
+
+| Alias | Function |
+| --- | --- |
+| `pbcopy` | Pipe stdin to the clipboard (`xclip -selection clipboard`) |
+| `tss` | Shortcut for `tailscale serve` |
