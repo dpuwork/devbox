@@ -19,12 +19,6 @@ Minimal terminal setup for dev boxes. Rent a VM, pipe the script, work.
 curl -fsSL https://cdn.dpuwork.com/setup.sh | bash
 ```
 
-### (other) bootstrap
-
-```bash
-curl -fsSL https://cdn.dpuwork.com/bootstrap.sh | bash
-```
-
 ## what setup does
 
 1. Installs base system packages: `git`, `curl`, `jq`, `openssh-client`, `build-essential`, `unzip`, `zsh`, `xclip`
