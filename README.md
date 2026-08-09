@@ -27,7 +27,7 @@ curl -fsSL https://cdn.dpuwork.com/setup.sh | bash
 4. Pulls in [Omadots](https://github.com/omacom-io/omadots) for dotfiles/config
 5. Appends devbox's own tmux customizations on top of Omadots' config (pane-ID copy shortcut, status bar tag)
 6. Installs dev tools and AI CLIs via [mise](https://mise.jdx.dev):
-   - Terminal tools: `neovim`, `starship`, `eza`, `zoxide`, `fzf`, `gh`, `lazygit`, `lazydocker`, `node`, `python`
+   - Terminal tools: `neovim`, `starship`, `eza`, `zoxide`, `fzf`, `gh`, `lazygit`, `lazydocker`, `btop`, `fastfetch`, `node`, `python`
    - AI CLIs & shims: `opencode`, `claude-code`, `codex`, `antigravity-cli`, [`tuicr`](https://github.com/agavra/tuicr)
 7. Walks you through logging into git and GitHub, connecting to Tailscale with SSH, and naming your default tmux session (first run only — prompts default to `Work` for the session name, just hit enter to accept)
 8. Turns on a firewall (ufw) that only allows SSH and Tailscale traffic, blocking everything else

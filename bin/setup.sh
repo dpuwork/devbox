@@ -306,7 +306,7 @@ install_mise_and_tools() {
   section "Ensuring standard terminal tools and AI shims..."
   
   # Core terminal utilities (Mise compiles/grabs binaries directly)
-  run_with_spinner "Installing core terminal utilities (neovim, python, node, lazygit, fzf, etc.)..." mise use -g -y neovim starship eza zoxide fzf gh lazygit lazydocker node python
+  run_with_spinner "Installing core terminal utilities (neovim, python, node, lazygit, fzf, etc.)..." mise use -g -y neovim starship eza zoxide fzf gh lazygit lazydocker btop fastfetch node python
 
   # AI Tooling & Shims
   run_with_spinner "Installing AI tooling and devbox shims (claude-code, codex, tuicr)..." \
