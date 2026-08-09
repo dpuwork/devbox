@@ -34,6 +34,14 @@ DEVBOX_BIN_DIR="$HOME/.local/bin"
 DEVBOX_STATE_DIR="$HOME/.local/state/devbox"
 SETUP_DONE_MARKER="$DEVBOX_STATE_DIR/setup-done"
 
+# tmux session name auto-attached on SSH login. Prompted for once during
+# onboarding (see onboard_tmux_session) and persisted here for later runs.
+TMUX_SESSION_FILE="$DEVBOX_STATE_DIR/tmux-session"
+TMUX_SESSION_NAME="Work"
+if [ -f "$TMUX_SESSION_FILE" ]; then
+  TMUX_SESSION_NAME="$(cat "$TMUX_SESSION_FILE")"
+fi
+
 
 export PATH="$DEVBOX_BIN_DIR:$PATH"
 
@@ -274,6 +282,11 @@ configure_tmux_customizations() {
 # Copy the current pane ID via OSC 52 (propagates through nested SSH/tmux
 # straight to the local clipboard; no X server needed on this box)
 bind I run-shell "tmux set-buffer -w -- '#{pane_id}'" \; display-message "Copied pane ID #{pane_id}"
+# Tag the status bar so a devbox tmux session is recognizable at a glance.
+# Prepends to Omadots' own status-left (blue "#S" session-name pill) rather
+# than clobbering it, since this block is appended after Omadots' config.
+set -g status-left-length 40
+set -g status-left "#[fg=black,bg=green,bold] DEVBOX #[fg=black,bg=blue,bold] #S #[bg=default] "
 # --- End Devbox TMUX Customizations ---
 EOF
   echo "✓ TMUX customizations applied to $tmux_conf"
@@ -296,8 +309,8 @@ install_mise_and_tools() {
   run_with_spinner "Installing core terminal utilities (neovim, python, node, lazygit, fzf, etc.)..." mise use -g -y neovim starship eza zoxide fzf gh lazygit lazydocker node python
 
   # AI Tooling & Shims
-  run_with_spinner "Installing AI tooling and devbox shims (claude-code, codex, hunk)..." \
-    mise use -g -y opencode claude-code codex antigravity-cli aqua:modem-dev/hunk
+  run_with_spinner "Installing AI tooling and devbox shims (claude-code, codex, tuicr)..." \
+    mise use -g -y opencode claude-code codex antigravity-cli github:agavra/tuicr
 
   # Sync shims to ensure they are available in the PATH
   run_with_spinner "Finalizing tools configuration..." bash -c 'mise reshim && mise install'
@@ -381,6 +394,19 @@ onboard_tailscale() {
   fi
 }
 
+onboard_tmux_session() {
+  if [ -f "$TMUX_SESSION_FILE" ]; then
+    echo "✓ Default tmux session name already configured ('$TMUX_SESSION_NAME')."
+    return 0
+  fi
+
+  local name="$TMUX_SESSION_NAME"
+  gum_input_into name --prompt "[tmux] default session name: " --value "$name"
+  TMUX_SESSION_NAME="${name:-Work}"
+  echo "$TMUX_SESSION_NAME" > "$TMUX_SESSION_FILE"
+  echo "✓ Default tmux session set to '$TMUX_SESSION_NAME'."
+}
+
 # --- Step 6.5: Configure Firewall ---
 configure_firewall() {
   section "Configuring firewall (ufw)..."
@@ -411,6 +437,11 @@ configure_firewall() {
 configure_shell_integration() {
   section "Applying userspace shell profile additions..."
   local shell_rcs=("$HOME/.bashrc" "$HOME/.zshrc")
+
+  # Shell-quote so a session name containing spaces/special chars stays a
+  # single argument to tmux in the generated rc file.
+  local quoted_session_name
+  printf -v quoted_session_name '%q' "$TMUX_SESSION_NAME"
 
   for rc in "${shell_rcs[@]}"; do
     # Ensure file exists
@@ -450,7 +481,7 @@ alias tss='tailscale serve'
 
 # Auto-launch TMUX for interactive incoming SSH sessions in the Developer folder
 if [[ \$- == *i* && -t 0 && -t 1 && -z "\$TMUX" && -n "\${SSH_CONNECTION:-}" ]]; then
-  cd "\$HOME/Developer" && (tmux attach-session -t Work 2>/dev/null || tmux new-session -c "\$HOME/Developer" -s Work)
+  cd "\$HOME/Developer" && (tmux attach-session -t $quoted_session_name 2>/dev/null || tmux new-session -c "\$HOME/Developer" -s $quoted_session_name)
 fi
 # --- End Devbox Shell Integrations ---
 EOF
@@ -487,7 +518,7 @@ switch_to_zsh() {
 }
 
 # --- Execution Pipeline ---
-echo "[dpu/devbox] setup v0.0.10"
+echo "[dpu/devbox] setup v0.0.11"
 install_system_dependencies
 install_gum
 install_latest_tmux
@@ -500,6 +531,7 @@ if [ ! -f "$SETUP_DONE_MARKER" ]; then
   onboard_git
   onboard_github
   onboard_tailscale
+  onboard_tmux_session
   if gum_confirm "Mark onboarding complete and skip these prompts next time?"; then
     touch "$SETUP_DONE_MARKER"
   else
