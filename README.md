@@ -1,19 +1,10 @@
-# devbox
+<p align="center">
+  <img src="assets/devbox-logo.png" alt="devbox">
+</p>
 
-```
-██████╗ ███████╗██╗   ██╗██████╗  ██████╗ ██╗  ██╗
-██╔══██╗██╔════╝██║   ██║██╔══██╗██╔═══██╗╚██╗██╔╝
-██║  ██║█████╗  ██║   ██║██████╔╝██║   ██║ ╚███╔╝
-██║  ██║██╔══╝  ╚██╗ ██╔╝██╔══██╗██║   ██║ ██╔██╗
-██████╔╝███████╗ ╚████╔╝ ██████╔╝╚██████╔╝██╔╝ ██╗
-╚═════╝ ╚══════╝  ╚═══╝  ╚═════╝  ╚═════╝ ╚═╝  ╚═╝
-```
+---
 
 Minimal terminal setup for dev boxes. Rent a VM, pipe the script, work.
-
-## install
-
-### setup
 
 ```bash
 curl -fsSL https://cdn.dpuwork.com/setup.sh | bash
@@ -45,13 +36,17 @@ The base tmux/Neovim (LazyVim) keybindings come from Omadots — see the full re
 
 ### tmux shortcuts
 
-| Hotkey | Function |
-| --- | --- |
+| Hotkey     | Function                                                                              |
+| ---------- | ------------------------------------------------------------------------------------- |
 | `Prefix I` | Copy the current pane ID to the clipboard (via OSC 52, works through nested SSH/tmux) |
 
 ### aliases
 
-| Alias | Function |
-| --- | --- |
+| Alias    | Function                                                   |
+| -------- | ---------------------------------------------------------- |
 | `pbcopy` | Pipe stdin to the clipboard (`xclip -selection clipboard`) |
-| `tss` | Shortcut for `tailscale serve` |
+| `tss`    | Shortcut for `tailscale serve`                             |
+
+## credits
+
+The logo uses [Microwaves](https://billyargel.com/product/microwaves/) font by Billy Argel, free for personal use.
