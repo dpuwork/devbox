@@ -1,45 +1,53 @@
-<p align="center">
-  <img src="assets/devbox-logo.png" alt="devbox">
-</p>
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="/assets/devbox-light.svg">
+  <img alt="devbox logo" src="/assets/devbox-dark.svg" width="50%" height="50%">
+</picture>
+
 <br/>
 
-Minimal terminal setup for dev boxes. Rent a VM, pipe the script, work.
-
-An opinionated, ready-to-use development environment with tmux, Neovim, Tailscale, Docker, mise, and a set of TUIs and coding agents.
+devbox: minimalist, opinionated, ready-to-use development environment with tmux, Neovim, Tailscale, mise, Docker, and a set of TUIs and coding agents.
+</div>
 
 ```bash
-curl -fsSL https://cdn.dpuwork.com/setup.sh | bash
+curl -fsSL https://cdn.dpuwork.com/devbox.sh | bash
 ```
 
 ## what setup does
 
-1. Installs base system packages: `git`, `curl`, `jq`, `openssh-client`, `build-essential`, `unzip`, `zsh`, `xclip`
-2. Installs [gum](https://github.com/charmbracelet/gum), for the nice terminal prompts
-3. Builds the latest tmux from source
-4. Installs Docker Engine from the official Docker CE apt repo, enables the service, and adds your user to the `docker` group
-5. Pulls in [Omadots](https://github.com/omacom-io/omadots) for dotfiles/config
-6. Appends devbox's own tmux customizations on top of Omadots' config (pane-ID copy shortcut, status bar tag)
-7. Installs dev tools and AI CLIs via [mise](https://mise.jdx.dev):
-   - Terminal tools: `neovim`, `starship`, `eza`, `zoxide`, `fzf`, `gh`, `lazygit`, `lazydocker`, `btop`, `fastfetch`, `node`, `python`
-   - AI CLIs & shims: `opencode`, `claude-code`, `codex`, `antigravity-cli`, [`tuicr`](https://github.com/agavra/tuicr)
-8. Walks you through logging into git and GitHub, connecting to Tailscale with SSH, and naming your default tmux session (first run only — prompts default to `Work` for the session name, just hit enter to accept)
-9. Turns on a firewall (ufw) that only allows SSH and Tailscale traffic, blocking everything else
-10. Sets up your shell profile: `PATH`/mise activation, a `pbcopy` clipboard alias, a `tss` alias for `tailscale serve`, and auto-attaching tmux to your chosen session whenever you SSH in
-11. Switches your default shell to zsh
+- **Shell**: zsh (set as your default shell), tmux (built from latest source), [Omadots](https://github.com/omacom-io/omadots) dotfiles with devbox's own tmux customizations layered on top (pane-ID copy shortcut, status bar tag)
+- **Editor**: Neovim ([LazyVim](https://www.lazyvim.org))
+- **Agents**: `opencode`, `claude-code`, `codex`, `antigravity-cli`, [`tuicr`](https://github.com/agavra/tuicr)
+- **Dev tools**: [mise](https://mise.jdx.dev), Docker Engine, `starship`, `eza`, `zoxide`, `fzf`, `gh`, `lazygit`, `lazydocker`, `btop`, `fastfetch`, `node`, `python`, [gum](https://github.com/charmbracelet/gum)
+- **Networking**: SSH, Tailscale, and a ufw firewall that only allows SSH and Tailscale traffic
+- **Git**: interactive login to git and GitHub
 
-Safe to run more than once — it skips anything already set up. Your tmux session name choice is remembered, so you won't be asked again on reruns.
+Base system packages (`git`, `ca-certificates`, `curl`, `jq`, `openssh-client`, `build-essential`, `unzip`, `zsh`, `xclip`) and Docker Engine are installed via the official apt repos; tmux is built from source. Dev tools and AI CLIs are installed through mise once those are in place. On first run, setup also walks you through logging into git and GitHub, connecting to Tailscale over SSH, and naming your default tmux session (defaults to `Work`), then configures your shell profile — `PATH`/mise activation, a `pbcopy` clipboard alias, a `tss` alias for `tailscale serve`, and auto-attaching tmux to your chosen session whenever you SSH in.
+
+## install and updates
+
+Run the same bootstrap command again to update Devbox-managed packages and tools:
+
+```bash
+curl -fsSL https://cdn.dpuwork.com/devbox.sh | bash
+```
+
+The first run performs onboarding and reloads the shell. Later interactive runs skip onboarding, update the installation, and automatically start a fresh shell with the updated configuration.
+
+Devbox stores its configuration under `~/.local/state/dpuwork/devbox`.
 
 ## shortcuts
 
 ### omaterm shortcuts
 
-The base tmux/Neovim (LazyVim) keybindings come from Omadots — see the full reference in the [Omaterm manual](https://learn.omacom.io/4/the-omaterm-manual/113/hotkeys).
+The base tmux/Neovim/shell keybindings come from Omadots (see the [Omaterm manual](https://learn.omacom.io/4/the-omaterm-manual/113/hotkeys)).
 
 ### tmux shortcuts
 
-| Hotkey     | Function                                                                              |
-| ---------- | ------------------------------------------------------------------------------------- |
-| `Prefix I` | Copy the current pane ID to the clipboard (via OSC 52, works through nested SSH/tmux) |
+| Hotkey     | Function                                  |
+| ---------- | ----------------------------------------- |
+| `Prefix I` | Copy the current pane ID to the clipboard |
 
 ### aliases
 
@@ -47,6 +55,16 @@ The base tmux/Neovim (LazyVim) keybindings come from Omadots — see the full re
 | -------- | ---------------------------------------------------------- |
 | `pbcopy` | Pipe stdin to the clipboard (`xclip -selection clipboard`) |
 | `tss`    | Shortcut for `tailscale serve`                             |
+
+### mise updates
+
+Update globally managed mise tools from your home directory:
+
+```bash
+cd ~ && mise upgrade
+```
+
+See the [mise documentation](https://mise.jdx.dev/) for more update options.
 
 ## credits
 

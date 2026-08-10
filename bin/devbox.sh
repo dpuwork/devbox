@@ -1,54 +1,39 @@
 #!/usr/bin/env bash
-# bin/setup.sh
-# Native Userspace Devbox Provisioner
-# Replicates the Omaterm stack & onboarding direct-to-host without virtualization layers.
+# Native userspace Devbox provisioner.
 set -euo pipefail
 
-# --- Pipe Re-execution Wrapper ---
-# Detect if the script is being piped (e.g., curl | bash) and re-execute with stdin from /dev/tty
+DEVBOX_VERSION="0.0.14"
+
+# Re-execute piped input with a terminal for interactive prompts.
 if [[ -z "${BASH_SOURCE[0]:-}" ]]; then
   if [ -r /dev/tty ]; then
-    TEMP_SCRIPT="$(mktemp /tmp/setup-XXXXXX.sh)"
+    TEMP_SCRIPT="$(mktemp /tmp/devbox-XXXXXX.sh)"
     cat > "$TEMP_SCRIPT"
     exec bash "$TEMP_SCRIPT" "$@" < /dev/tty
   fi
 fi
 
-# Self-cleanup if running the temporary setup script
-if [[ -n "${BASH_SOURCE[0]:-}" && "${BASH_SOURCE[0]}" == /tmp/setup-* ]]; then
-  trap 'rm -f "${BASH_SOURCE[0]}"' EXIT
+CLEANUP_DIRS=()
+TEMP_SCRIPT=""
+if [[ -n "${BASH_SOURCE[0]:-}" && "${BASH_SOURCE[0]}" == /tmp/devbox-* ]]; then
+  TEMP_SCRIPT="${BASH_SOURCE[0]}"
 fi
 
-# Fallback to xterm-256color if the current TERM's terminfo is missing on this host
-if command -v infocmp &>/dev/null && ! infocmp "${TERM:-}" &>/dev/null; then
-  export TERM=xterm-256color
-fi
+cleanup() {
+  local path
 
-# Ensure we are running on a Debian or Ubuntu system
-if [ ! -f /etc/debian_version ]; then
-  echo "Error: This script only supports Debian or Ubuntu systems." >&2
-  exit 1
-fi
+  if ((${#CLEANUP_DIRS[@]})); then
+    for path in "${CLEANUP_DIRS[@]}"; do
+      rm -rf "$path"
+    done
+  fi
 
-DEVBOX_BIN_DIR="$HOME/.local/bin"
-DEVBOX_STATE_DIR="$HOME/.local/state/devbox"
-SETUP_DONE_MARKER="$DEVBOX_STATE_DIR/setup-done"
+  [[ -z $TEMP_SCRIPT ]] || rm -f "$TEMP_SCRIPT"
+}
 
-# tmux session name auto-attached on SSH login. Prompted for once during
-# onboarding (see onboard_tmux_session) and persisted here for later runs.
-TMUX_SESSION_FILE="$DEVBOX_STATE_DIR/tmux-session"
-TMUX_SESSION_NAME="Work"
-if [ -f "$TMUX_SESSION_FILE" ]; then
-  TMUX_SESSION_NAME="$(cat "$TMUX_SESSION_FILE")"
-fi
+trap cleanup EXIT
 
-
-export PATH="$DEVBOX_BIN_DIR:$PATH"
-
-# Ensure crucial directories exist
-mkdir -p "$DEVBOX_BIN_DIR" "$DEVBOX_STATE_DIR" "$HOME/.config"
-
-# --- UI Helpers ---
+# UI helpers.
 
 section() {
   echo -e "\n\033[1;34m==>\033[0m \033[1m$1\033[0m"
@@ -73,14 +58,29 @@ sudo_preflight() {
   fi
 }
 
+ensure_docker_group() {
+  local docker_gid command_line
+
+  docker_gid="$(getent group docker 2>/dev/null | cut -d: -f3 || true)"
+  [[ -n $docker_gid ]] || exec "$@"
+
+  if id -G | grep -qw "$docker_gid"; then
+    exec "$@"
+  fi
+
+  if ! command -v sg &>/dev/null; then
+    echo "Warning: 'sg' is unavailable; the Docker group will take effect after re-login." >&2
+    exec "$@"
+  fi
+
+  command_line="$(printf '%q ' "$@")"
+  exec sg docker -c "$command_line"
+}
+
 latest_github_release() {
   local repo="$1" fallback="${2:-}" tag=""
 
-  if command -v jq &>/dev/null; then
-    tag="$(curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null | jq -r '.tag_name // empty' 2>/dev/null || true)"
-  else
-    tag="$(curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 || true)"
-  fi
+  tag="$(curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null | jq -r '.tag_name // empty' 2>/dev/null || true)"
 
   tag="${tag#v}"
   if [[ -z "$tag" || "$tag" == "null" ]]; then
@@ -91,7 +91,6 @@ latest_github_release() {
 }
 
 
-# --- Onboarding Prompts (Interrupt/Trap safe) ---
 finish_from_interrupt() {
   echo -e "\n\033[1;31mOnboarding cancelled by user.\033[0m"
   exit 130
@@ -135,34 +134,16 @@ gum_confirm() {
   return "$status"
 }
 
-# --- Step 1: Install System Dependencies ---
 install_system_dependencies() {
   section "Checking system package prerequisites..."
   local deps=(git curl jq openssh-client build-essential unzip zsh xclip ca-certificates)
-  local missing=()
 
-  for dep in "${deps[@]}"; do
-    if [ "$dep" = "openssh-client" ] && ! command -v ssh &>/dev/null; then
-      missing+=("$dep")
-    elif ! command -v "$dep" &>/dev/null && [ "$dep" != "build-essential" ] && [ "$dep" != "openssh-client" ] && [ "$dep" != "ca-certificates" ]; then
-      missing+=("$dep")
-    elif [ "$dep" = "build-essential" ] && ! dpkg -l | grep -q build-essential 2>/dev/null; then
-      missing+=("build-essential")
-    elif [ "$dep" = "ca-certificates" ] && ! dpkg -l | grep -q ca-certificates 2>/dev/null; then
-      missing+=("ca-certificates")
-    fi
-  done
-
-  if ((${#missing[@]} > 0)); then
-    sudo_preflight
-    run_with_spinner "Updating system package repositories..." sudo apt-get update -y
-    run_with_spinner "Installing missing system packages (${missing[*]})..." sudo apt-get install -y "${missing[@]}"
-  else
-    echo "✓ Core system packages already present."
-  fi
+  # Installing existing packages also upgrades them on subsequent runs.
+  sudo_preflight
+  run_with_spinner "Updating system package repositories..." sudo apt-get update -y
+  run_with_spinner "Installing/upgrading system packages (${deps[*]})..." sudo apt-get install -y "${deps[@]}"
 }
 
-# --- Step 1.5: Install Latest TMUX from Source ---
 install_latest_tmux() {
   local current_version=""
   if command -v tmux &>/dev/null; then
@@ -173,7 +154,6 @@ install_latest_tmux() {
   latest_version="$(latest_github_release tmux/tmux 3.7b)"
 
   if [[ -n "$current_version" ]]; then
-    # If the current version is already >= the latest version, skip the rebuild.
     if [ "$(printf '%s\n' "$latest_version" "$current_version" | sort -V | head -n1)" = "$latest_version" ]; then
       echo "✓ TMUX $current_version (>= $latest_version) is already installed."
       return 0
@@ -182,13 +162,13 @@ install_latest_tmux() {
 
   section "Installing latest TMUX from source (v${latest_version})..."
   
-  # Install build dependencies for compiling tmux
   sudo_preflight
   run_with_spinner "Installing TMUX build dependencies..." \
     sudo apt-get install -y libevent-dev libncurses-dev bison pkg-config
 
   local temp_dir
   temp_dir="$(mktemp -d)"
+  CLEANUP_DIRS+=("$temp_dir")
 
   run_with_spinner "Downloading TMUX v${latest_version} source..." \
     curl -fsSL "https://github.com/tmux/tmux/releases/download/${latest_version}/tmux-${latest_version}.tar.gz" -o "$temp_dir/tmux-${latest_version}.tar.gz"
@@ -196,7 +176,6 @@ install_latest_tmux() {
   run_with_spinner "Extracting TMUX source..." \
     tar -xzf "$temp_dir/tmux-${latest_version}.tar.gz" -C "$temp_dir"
 
-  # Run configuration and build inside the temp directory
   (
     cd "$temp_dir/tmux-${latest_version}"
     run_with_spinner "Configuring TMUX..." ./configure --prefix="$HOME/.local"
@@ -204,9 +183,6 @@ install_latest_tmux() {
     run_with_spinner "Installing TMUX to userspace..." make install
   )
 
-  rm -rf "$temp_dir"
-  
-  # Verify installation
   if [ -f "$DEVBOX_BIN_DIR/tmux" ]; then
     local new_ver
     new_ver="$("$DEVBOX_BIN_DIR/tmux" -V)"
@@ -217,48 +193,65 @@ install_latest_tmux() {
   fi
 }
 
-# --- Step 1.7: Install Docker Engine (official CE repo) ---
 install_docker_engine() {
-  if ! command -v docker &>/dev/null || ! sudo systemctl cat docker.service &>/dev/null; then
-    section "Installing Docker Engine (official CE repo)..."
-    sudo_preflight
+  section "Checking Docker Engine (official CE repo)..."
+  sudo_preflight
 
-    local distro_id codename arch keyring
-    distro_id="$(. /etc/os-release && echo "$ID")"
-    codename="$(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")"
-    arch="$(dpkg --print-architecture)"
-    keyring="/etc/apt/keyrings/docker.asc"
+  local distro_id codename arch keyring
+  distro_id="$(. /etc/os-release && echo "$ID")"
+  codename="$(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")"
+  arch="$(dpkg --print-architecture)"
+  keyring="/etc/apt/keyrings/docker.asc"
 
+  if [ ! -f "$keyring" ]; then
     sudo install -m 0755 -d /etc/apt/keyrings
     sudo curl -fsSL "https://download.docker.com/linux/${distro_id}/gpg" -o "$keyring"
     sudo chmod a+r "$keyring"
-
-    echo "deb [arch=${arch} signed-by=${keyring}] https://download.docker.com/linux/${distro_id} ${codename} stable" \
-      | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
-
-    run_with_spinner "Updating package repositories..." sudo apt-get update -y
-    run_with_spinner "Installing Docker Engine, CLI, containerd, buildx, and compose plugin..." \
-      sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-  else
-    echo "✓ Docker Engine already installed."
   fi
+
+  # Rewrite the repository entry so interrupted setups and distro upgrades recover.
+  echo "deb [arch=${arch} signed-by=${keyring}] https://download.docker.com/linux/${distro_id} ${codename} stable" \
+    | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+
+  # Reinstalling existing packages also upgrades Docker on subsequent runs.
+  run_with_spinner "Updating package repositories..." sudo apt-get update -y
+  run_with_spinner "Installing/upgrading Docker Engine, CLI, containerd, buildx, and compose plugin..." \
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
   sudo systemctl enable --now docker
   sudo usermod -aG docker "$USER"
-  echo "✓ Docker Engine running. $USER is in the docker group (log out/in, or run 'newgrp docker', to use docker without sudo this session)."
+  echo "✓ Docker Engine running. $USER added to the docker group."
 }
 
 
-# --- Step 2: Install userspace Gum CLI ---
 install_gum() {
+  local current_version=""
   if command -v gum &>/dev/null; then
-    return
+    current_version="$(gum --version 2>/dev/null | awk '{print $3}' || true)"
   fi
 
-  section "Installing Gum CLI..."
-  local temp_dir os arch download_url latest_version
+  local latest_version
+  latest_version="$(latest_github_release charmbracelet/gum)"
+  if [[ -z "$latest_version" ]]; then
+    echo "Error: Could not determine latest Gum release version." >&2
+    exit 1
+  fi
+
+  if [[ -n "$current_version" ]]; then
+    if [ "$(printf '%s\n' "$latest_version" "$current_version" | sort -V | head -n1)" = "$latest_version" ]; then
+      echo "✓ Gum $current_version (>= $latest_version) is already installed."
+      return 0
+    fi
+  fi
+
+  section "Installing Gum CLI (v${latest_version})..."
+  local temp_dir os arch download_url
   temp_dir="$(mktemp -d)"
-  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  CLEANUP_DIRS+=("$temp_dir")
+  case "$(uname -s)" in
+    Linux) os="Linux" ;;
+    *) echo "Unsupported operating system: $(uname -s)" >&2; exit 1 ;;
+  esac
   arch="$(uname -m)"
 
   case "$arch" in
@@ -267,21 +260,14 @@ install_gum() {
     *) echo "Unsupported architecture: $arch"; exit 1 ;;
   esac
 
-  latest_version="$(latest_github_release charmbracelet/gum)"
-  if [[ -z "$latest_version" ]]; then
-    echo "Error: Could not determine latest Gum release version." >&2
-    exit 1
-  fi
   download_url="https://github.com/charmbracelet/gum/releases/download/v${latest_version}/gum_${latest_version}_${os}_${arch}.tar.gz"
-  
+
   curl -fsSL "$download_url" | tar -xz -C "$temp_dir"
   find "$temp_dir" -type f -name "gum" -exec mv {} "$DEVBOX_BIN_DIR/gum" \;
   chmod +x "$DEVBOX_BIN_DIR/gum"
-  rm -rf "$temp_dir"
   echo "✓ Gum installed successfully to $DEVBOX_BIN_DIR"
 }
 
-# --- Step 3: Bootstrap Omadots ---
 install_omadots() {
   section "Checking Omadots status..."
   if [ ! -d "$HOME/.local/share/omadots" ]; then
@@ -291,7 +277,6 @@ install_omadots() {
   fi
 }
 
-# --- Step 3.5: Append TMUX Customizations (on top of Omadots) ---
 configure_tmux_customizations() {
   local tmux_conf="$HOME/.config/tmux/tmux.conf"
 
@@ -301,22 +286,15 @@ configure_tmux_customizations() {
 
   section "Applying TMUX customizations..."
 
-  # Remove any existing Devbox customization block to allow clean upgrades/updates
-  if sed --version 2>&1 | grep -q GNU; then
-    sed -i '/# --- Devbox TMUX Customizations ---/,/# --- End Devbox TMUX Customizations ---/d' "$tmux_conf"
-  else
-    sed -i '' '/# --- Devbox TMUX Customizations ---/,/# --- End Devbox TMUX Customizations ---/d' "$tmux_conf"
-  fi
+  # Replace the block so updates remain idempotent.
+  sed -i '/# --- Devbox TMUX Customizations ---/,/# --- End Devbox TMUX Customizations ---/d' "$tmux_conf"
 
   cat >>"$tmux_conf" <<'EOF'
 
 # --- Devbox TMUX Customizations ---
-# Copy the current pane ID via OSC 52 (propagates through nested SSH/tmux
-# straight to the local clipboard; no X server needed on this box)
+# Copy the pane ID to the local clipboard via OSC 52.
 bind I run-shell "tmux set-buffer -w -- '#{pane_id}'" \; display-message "Copied pane ID #{pane_id}"
-# Tag the status bar so a devbox tmux session is recognizable at a glance.
-# Prepends to Omadots' own status-left (blue "#S" session-name pill) rather
-# than clobbering it, since this block is appended after Omadots' config.
+# Mark Devbox sessions in the status bar.
 set -g status-left-length 40
 set -g status-left "#[fg=black,bg=green,bold] DEVBOX #[fg=black,bg=blue,bold] #S #[bg=default] "
 # --- End Devbox TMUX Customizations ---
@@ -324,31 +302,37 @@ EOF
   echo "✓ TMUX customizations applied to $tmux_conf"
 }
 
-# --- Step 4: Bootstrap Mise & Install Development Stack ---
 install_mise_and_tools() {
   section "Checking Mise runtime manager..."
   if ! command -v mise &>/dev/null; then
     run_with_spinner "Bootstrapping Mise runtime manager locally..." bash -c 'curl https://mise.jdx.dev/install.sh | sh'
   fi
 
-  # Activate mise for the remainder of this setup session
+  # Make mise available for the remainder of this setup session.
   export PATH="$HOME/.local/share/mise/shims:$HOME/.local/share/mise/bin:$PATH"
   eval "$(mise activate bash)"
 
+  # Package-managed mise may disable self-update or be unwritable.
+  if [[ "$(command -v mise)" == "$DEVBOX_BIN_DIR/mise" ]]; then
+    run_with_spinner "Updating mise itself..." mise self-update -y
+  else
+    echo "✓ Mise is managed outside Devbox's userspace install ($(command -v mise)); skipping 'mise self-update'."
+  fi
+
   section "Ensuring standard terminal tools and AI shims..."
-  
-  # Core terminal utilities (Mise compiles/grabs binaries directly)
+
   run_with_spinner "Installing core terminal utilities (neovim, python, node, lazygit, fzf, etc.)..." mise use -g -y neovim starship eza zoxide fzf gh lazygit lazydocker btop fastfetch node python
 
-  # AI Tooling & Shims
   run_with_spinner "Installing AI tooling and devbox shims (claude-code, codex, tuicr)..." \
     mise use -g -y opencode claude-code codex antigravity-cli github:agavra/tuicr
 
-  # Sync shims to ensure they are available in the PATH
+  # Upgrade globally from $HOME so a project-local mise.toml is not modified.
+  run_with_spinner "Upgrading installed tools to their latest versions..." \
+    bash -c 'cd "$HOME" && mise upgrade -y'
+
   run_with_spinner "Finalizing tools configuration..." bash -c 'mise reshim && mise install'
 }
 
-# --- Step 6: Onboarding Flows (Interactive) ---
 onboard_git() {
   local name="" email=""
   
@@ -404,7 +388,6 @@ onboard_tailscale() {
     return 0
   fi
 
-  # Skip Tailscale if we cannot act as root
   if ! sudo -n true &>/dev/null; then
     return 0
   fi
@@ -439,7 +422,6 @@ onboard_tmux_session() {
   echo "✓ Default tmux session set to '$TMUX_SESSION_NAME'."
 }
 
-# --- Step 6.5: Configure Firewall ---
 configure_firewall() {
   section "Configuring firewall (ufw)..."
 
@@ -449,9 +431,9 @@ configure_firewall() {
     run_with_spinner "Installing ufw..." sudo apt-get install -y ufw
   fi
 
-  # Always allow SSH before touching default policy, so we never lock ourselves out
+  # Allow SSH before changing the default policy.
   sudo ufw allow 22/tcp >/dev/null
-  # Trust the tailnet: once Tailscale is up, tailscale0 carries only tailnet-authenticated traffic
+  # Allow tailnet traffic when Tailscale is available.
   sudo ufw allow in on tailscale0 >/dev/null 2>&1 || true
 
   sudo ufw default deny incoming >/dev/null
@@ -465,53 +447,41 @@ configure_firewall() {
   fi
 }
 
-# --- Step 7: Shell Profile Integration ---
 configure_shell_integration() {
   section "Applying userspace shell profile additions..."
   local shell_rcs=("$HOME/.bashrc" "$HOME/.zshrc")
 
-  # Shell-quote so a session name containing spaces/special chars stays a
-  # single argument to tmux in the generated rc file.
+  # Preserve spaces and special characters in the generated tmux argument.
   local quoted_session_name
   printf -v quoted_session_name '%q' "$TMUX_SESSION_NAME"
 
   for rc in "${shell_rcs[@]}"; do
-    # Ensure file exists
     touch "$rc"
 
-    # Remove any existing Devbox integration block to allow clean upgrades/updates
-    if sed --version 2>&1 | grep -q GNU; then
-      sed -i '/# --- Devbox Shell Integrations ---/,/# --- End Devbox Shell Integrations ---/d' "$rc"
-    else
-      sed -i '' '/# --- Devbox Shell Integrations ---/,/# --- End Devbox Shell Integrations ---/d' "$rc"
-    fi
+    # Replace the block so updates remain idempotent.
+    sed -i '/# --- Devbox Shell Integrations ---/,/# --- End Devbox Shell Integrations ---/d' "$rc"
 
-    # Append fresh integrations at the end of the file
     local sh_name="bash"
     [[ "$rc" == *zshrc ]] && sh_name="zsh"
 
     cat >> "$rc" <<EOF
 
 # --- Devbox Shell Integrations ---
-# Fallback to xterm-256color if the current TERM's terminfo is missing on this host
 if command -v infocmp &>/dev/null && ! infocmp "\${TERM:-}" &>/dev/null; then
   export TERM=xterm-256color
 fi
 
 export PATH="\$HOME/.local/bin:\$PATH"
 
-# Activate Mise environment manager
 if command -v mise &>/dev/null; then
   eval "\$(mise activate $sh_name)"
 fi
 
-# Clipboard alias
 alias pbcopy='xclip -selection clipboard'
 
-# Tailscale Serve shortcut
 alias tss='tailscale serve'
 
-# Auto-launch TMUX for interactive incoming SSH sessions in the Developer folder
+# Auto-launch TMUX for interactive SSH sessions.
 if [[ \$- == *i* && -t 0 && -t 1 && -z "\$TMUX" && -n "\${SSH_CONNECTION:-}" ]]; then
   cd "\$HOME/Developer" && (tmux attach-session -t $quoted_session_name 2>/dev/null || tmux new-session -c "\$HOME/Developer" -s $quoted_session_name)
 fi
@@ -521,7 +491,21 @@ EOF
   echo "✓ Shell profile integrations configured."
 }
 
-# --- Step 8: Switch default shell to Zsh ---
+reload_shell() {
+  local tmux_conf="$HOME/.config/tmux/tmux.conf"
+
+  if ! command -v zsh &>/dev/null; then
+    echo "Warning: zsh is not installed; cannot reload the shell automatically. Run 'source ~/.zshrc' manually." >&2
+    return 1
+  fi
+
+  if command -v tmux &>/dev/null && [ -f "$tmux_conf" ] && tmux has-session 2>/dev/null; then
+    tmux source-file "$tmux_conf"
+  fi
+
+  ensure_docker_group zsh -il
+}
+
 switch_to_zsh() {
   if [ "${SHELL##*/}" = "zsh" ]; then
     echo "✓ Default shell is already ZSH."
@@ -549,38 +533,152 @@ switch_to_zsh() {
   fi
 }
 
-# --- Execution Pipeline ---
-echo "[dpu/devbox] setup v0.0.12"
-install_system_dependencies
-install_gum
-install_latest_tmux
-install_docker_engine
-install_omadots
-configure_tmux_customizations
-install_mise_and_tools
+usage() {
+  cat <<'EOF'
+Usage: devbox.sh
 
-# Onboarding UX Elements
-if [ ! -f "$SETUP_DONE_MARKER" ]; then
-  onboard_git
-  onboard_github
-  onboard_tailscale
-  onboard_tmux_session
-  if gum_confirm "Mark onboarding complete and skip these prompts next time?"; then
-    touch "$SETUP_DONE_MARKER"
-  else
-    status=$?
-    if (( status == 130 )); then
-      finish_from_interrupt
+  Run without arguments to install Devbox on the first run and update it on later runs.
+  -h, --help  Show this help text
+EOF
+}
+
+install_phase() {
+  install_system_dependencies
+  install_gum
+  install_latest_tmux
+  install_docker_engine
+  install_omadots
+  configure_tmux_customizations
+  install_mise_and_tools
+}
+
+setup_phase() {
+  if [ ! -f "$ONBOARDING_DONE_MARKER" ]; then
+    onboard_git
+    onboard_github
+    onboard_tailscale
+    onboard_tmux_session
+    if gum_confirm "Mark onboarding complete and skip these prompts next time?"; then
+      touch "$ONBOARDING_DONE_MARKER"
+    else
+      local status=$?
+      if (( status == 130 )); then
+        finish_from_interrupt
+      fi
     fi
   fi
-fi
 
-configure_firewall
-configure_shell_integration
-switch_to_zsh
+  configure_firewall
+  configure_shell_integration
+  switch_to_zsh
+  mkdir -p "$HOME/Developer"
+  if [ -f "$ONBOARDING_DONE_MARKER" ]; then
+    touch "$SETUP_COMPLETE_MARKER"
+  fi
 
-# Create Developer directory in userspace
-mkdir -p "$HOME/Developer"
+  section "Devbox userspace configuration successfully completed!"
+  echo -e "\033[1;32m✓ Setup finished. Reloading your shell to load all tools (e.g., eza, starship, nvim, fzf)...\033[0m"
+}
 
-section "Devbox userspace configuration successfully completed!"
-echo -e "\033[1;32m✓ Setup finished. Run 'source ~/.zshrc' (or reconnect) to load all tools (e.g., eza, starship, nvim, fzf).\033[0m"
+update_phase() {
+  configure_shell_integration
+  section "Devbox components updated successfully!"
+  echo -e "\033[1;32m✓ Update finished. Reloading your shell to load changes...\033[0m"
+}
+
+migrate_legacy_state() {
+  local legacy_state_dir="$HOME/.local/state/devbox"
+  local legacy_setup_cache="$legacy_state_dir/devbox.sh"
+
+  # Only migrate state that contains the previous Devbox installer signature;
+  # ~/.local/state/devbox is too generic to trust blindly.
+  if [ ! -f "$legacy_setup_cache" ] || ! grep -q "Native userspace Devbox provisioner" "$legacy_setup_cache"; then
+    return 0
+  fi
+
+  if [ ! -f "$ONBOARDING_DONE_MARKER" ] && [ -f "$legacy_state_dir/setup-done" ]; then
+    cp "$legacy_state_dir/setup-done" "$ONBOARDING_DONE_MARKER"
+  fi
+
+  if [ ! -f "$TMUX_SESSION_FILE" ] && [ -f "$legacy_state_dir/tmux-session" ]; then
+    cp "$legacy_state_dir/tmux-session" "$TMUX_SESSION_FILE"
+  fi
+
+  if [ -f "$legacy_state_dir/setup-done" ] && [ -f "$legacy_state_dir/tmux-session" ]; then
+    touch "$SETUP_COMPLETE_MARKER"
+  fi
+}
+
+main() {
+  if (($# > 1)); then
+    echo "Unexpected arguments: ${*:2}" >&2
+    usage >&2
+    return 2
+  fi
+
+  case "${1:-}" in
+    "")       DEVBOX_MODE="" ;;
+    -h|--help)
+      usage
+      return 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      return 2
+      ;;
+  esac
+
+  # Fallback to xterm-256color if the current TERM's terminfo is missing on this host.
+  if command -v infocmp &>/dev/null && ! infocmp "${TERM:-}" &>/dev/null; then
+    export TERM=xterm-256color
+  fi
+
+  if [ ! -f /etc/debian_version ]; then
+    echo "Error: This script only supports Debian or Ubuntu systems." >&2
+    return 1
+  fi
+
+  DEVBOX_BIN_DIR="$HOME/.local/bin"
+  DEVBOX_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dpuwork/devbox"
+  ONBOARDING_DONE_MARKER="$DEVBOX_STATE_DIR/onboarding-done"
+  SETUP_COMPLETE_MARKER="$DEVBOX_STATE_DIR/setup-complete"
+  TMUX_SESSION_FILE="$DEVBOX_STATE_DIR/tmux-session"
+
+  export PATH="$DEVBOX_BIN_DIR:$PATH"
+  mkdir -p "$DEVBOX_BIN_DIR" "$DEVBOX_STATE_DIR" "$HOME/.config"
+  migrate_legacy_state
+
+  # Persist the tmux session name used for SSH auto-attach.
+  TMUX_SESSION_NAME="Work"
+  if [ -f "$TMUX_SESSION_FILE" ]; then
+    TMUX_SESSION_NAME="$(cat "$TMUX_SESSION_FILE")"
+  fi
+
+  if [[ -z "$DEVBOX_MODE" ]]; then
+    if [ -f "$SETUP_COMPLETE_MARKER" ]; then
+      DEVBOX_MODE="update"
+    else
+      DEVBOX_MODE="setup"
+    fi
+  fi
+
+  echo "[dpu/devbox] ${DEVBOX_MODE} v${DEVBOX_VERSION}"
+  install_phase
+
+  if [[ "$DEVBOX_MODE" == "setup" ]]; then
+    setup_phase
+    cleanup
+    reload_shell
+  else
+    update_phase
+    if [[ -t 0 && -t 1 && -t 2 ]]; then
+      cleanup
+      reload_shell
+    else
+      cleanup
+    fi
+  fi
+}
+
+main "$@"
