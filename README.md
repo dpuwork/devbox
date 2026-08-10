@@ -10,6 +10,8 @@
 devbox: minimalist, opinionated, ready-to-use development environment with tmux, Neovim, Tailscale, mise, Docker, and a set of TUIs and coding agents.
 </div>
 
+---
+
 ```bash
 curl -fsSL https://cdn.dpuwork.com/devbox.sh | bash
 ```
