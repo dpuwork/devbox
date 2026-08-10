@@ -49,6 +49,7 @@ The base tmux/Neovim/shell keybindings come from Omadots (see the [Omaterm manua
 
 | Hotkey     | Function                                  |
 | ---------- | ----------------------------------------- |
+| `Ctrl-b`   | tmux prefix (default, unchanged)          |
 | `Prefix I` | Copy the current pane ID to the clipboard |
 
 ### aliases
@@ -56,7 +57,7 @@ The base tmux/Neovim/shell keybindings come from Omadots (see the [Omaterm manua
 | Alias    | Function                                                   |
 | -------- | ---------------------------------------------------------- |
 | `pbcopy` | Pipe stdin to the clipboard (`xclip -selection clipboard`) |
-| `tss`    | Shortcut for `tailscale serve`                             |
+| `tss`    | Shortcut for [`tailscale serve`](https://tailscale.com/kb/1312/serve) |
 
 ### mise updates
 
