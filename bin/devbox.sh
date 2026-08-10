@@ -383,7 +383,7 @@ onboard_tailscale() {
   if command -v tailscale &>/dev/null && tailscale status &>/dev/null; then
     echo "✓ Tailscale connected."
     if sudo -n true &>/dev/null; then
-      sudo tailscale set --ssh
+      sudo tailscale set --ssh --operator="$USER"
     fi
     return 0
   fi
@@ -400,7 +400,7 @@ onboard_tailscale() {
     host_name="$(hostname)"
     gum_input_into host_name --prompt "[tailscale] hostname: " --value "$host_name"
     sudo tailscale up --ssh --accept-routes --hostname "$host_name"
-    sudo tailscale set --ssh
+    sudo tailscale set --ssh --operator="$USER"
   else
     local status=$?
     if (( status == 130 )); then

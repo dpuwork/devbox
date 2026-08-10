@@ -59,6 +59,8 @@ The base tmux/Neovim/shell keybindings come from Omadots (see the [Omaterm manua
 | `pbcopy` | Pipe stdin to the clipboard (`xclip -selection clipboard`) |
 | `tss`    | Shortcut for [`tailscale serve`](https://tailscale.com/kb/1312/serve) |
 
+Onboarding sets you as the Tailscale operator (`tailscale set --operator=$USER`) so `tss` works without `sudo`.
+
 ### mise updates
 
 Update globally managed mise tools from your home directory:
