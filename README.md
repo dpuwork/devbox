@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="/assets/devbox-light.svg">
-  <img alt="devbox logo" src="/assets/devbox-dark.svg" width="50%" height="50%">
+  <img alt="devbox logo" src="/assets/devbox-dark.svg" width="75%" height="75%">
 </picture>
 
 <br/>
