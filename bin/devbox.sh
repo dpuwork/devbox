@@ -344,22 +344,16 @@ onboard_git() {
     return 0
   fi
 
-  if gum_confirm "Configure Git identity?"; then
-    while [[ -z $name ]]; do
-      gum_input_into name --prompt "[git] user.name: " --value "$name"
-    done
-    while [[ -z $email ]]; do
-      gum_input_into email --prompt "[git] user.email: " --value "$email"
-    done
-    git config --global user.name "$name"
-    git config --global user.email "$email"
-    echo "✓ Git identity configured."
-  else
-    local status=$?
-    if (( status == 130 )); then
-      finish_from_interrupt
-    fi
-  fi
+  echo "Git identity is required so commits (including ones made by agents) are attributed to you."
+  while [[ -z $name ]]; do
+    gum_input_into name --prompt "[git] user.name: " --value "$name"
+  done
+  while [[ -z $email ]]; do
+    gum_input_into email --prompt "[git] user.email: " --value "$email"
+  done
+  git config --global user.name "$name"
+  git config --global user.email "$email"
+  echo "✓ Git identity configured."
 }
 
 onboard_github() {
