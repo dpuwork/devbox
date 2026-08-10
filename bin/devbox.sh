@@ -573,7 +573,7 @@ setup_phase() {
   switch_to_zsh
   mkdir -p "$HOME/Developer"
   if [ -f "$ONBOARDING_DONE_MARKER" ]; then
-    touch "$SETUP_COMPLETE_MARKER"
+    echo "$DEVBOX_VERSION" > "$SETUP_COMPLETE_MARKER"
   fi
 
   section "Devbox userspace configuration successfully completed!"
@@ -605,7 +605,7 @@ migrate_legacy_state() {
   fi
 
   if [ -f "$legacy_state_dir/setup-done" ] && [ -f "$legacy_state_dir/tmux-session" ]; then
-    touch "$SETUP_COMPLETE_MARKER"
+    echo "$DEVBOX_VERSION" > "$SETUP_COMPLETE_MARKER"
   fi
 }
 
