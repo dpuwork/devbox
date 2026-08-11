@@ -3,6 +3,7 @@ name: "[publish] binaries"
 on:
   push:
     branches: ["master"]
+    paths: ["bin/**"]
   workflow_dispatch:
 
 jobs:
