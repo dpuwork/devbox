@@ -65,7 +65,7 @@ Devbox's herdr config (`~/.config/herdr/config.toml`) mirrors the Omaterm tmux k
 
 | Alias    | Function                                                              |
 | -------- | --------------------------------------------------------------------- |
-| `pbcopy` | Pipe stdin to the local clipboard via an OSC 52 escape sequence — works over plain SSH, no X server or X forwarding needed |
+| `pbcopy` | Pipe stdin to the local clipboard via an OSC 52 escape sequence         |
 | `tss`    | Shortcut for [`tailscale serve`](https://tailscale.com/kb/1312/serve) |
 | `h`      | Shortcut for `herdr`                                                  |
 | `t`      | Shortcut for `tmux`                                                   |

@@ -587,9 +587,8 @@ configure_shell_integration() {
 
   # A real script on PATH, not a shell alias/function, so it also works from
   # non-interactive contexts (tmux run-shell, herdr custom commands) that
-  # don't source .bashrc/.zshrc. Copies stdin to the *local* clipboard via
-  # OSC 52, which works over plain SSH with no X server or X forwarding
-  # needed on the remote box (unlike xclip, which requires one).
+  # don't source .bashrc/.zshrc. Copies stdin to the local clipboard via
+  # an OSC 52 escape sequence.
   cat >"$DEVBOX_BIN_DIR/pbcopy" <<'EOF'
 #!/bin/sh
 # Truncate to stay under common terminal OSC 52 payload limits (~100KB).
