@@ -2,7 +2,7 @@
 # Native userspace Devbox provisioner.
 set -euo pipefail
 
-DEVBOX_VERSION="0.0.14"
+DEVBOX_VERSION="0.0.15"
 
 # Re-execute piped input with a terminal for interactive prompts.
 if [[ -z "${BASH_SOURCE[0]:-}" ]]; then
@@ -538,40 +538,6 @@ onboard_tailscale() {
   fi
 }
 
-onboard_multiplexer() {
-  if [ -f "$MULTIPLEXER_FILE" ]; then
-    if [[ "$MULTIPLEXER_KIND" == "none" ]]; then
-      echo "✓ Multiplexer auto-connect already configured (none)."
-    else
-      echo "✓ Multiplexer auto-connect already configured ($MULTIPLEXER_KIND, session '$MULTIPLEXER_SESSION_NAME')."
-    fi
-    return 0
-  fi
-
-  local choice=""
-  gum_choose_into choice tmux herdr none --header "Auto-connect to a terminal multiplexer when you SSH in?"
-
-  case "$choice" in
-    tmux|herdr)
-      local name="$MULTIPLEXER_SESSION_NAME"
-      gum_input_into name --prompt "[$choice] default session name: " --value "$name"
-      MULTIPLEXER_KIND="$choice"
-      MULTIPLEXER_SESSION_NAME="${name:-Work}"
-      ;;
-    *)
-      MULTIPLEXER_KIND="none"
-      MULTIPLEXER_SESSION_NAME=""
-      ;;
-  esac
-
-  printf '%s\n%s\n' "$MULTIPLEXER_KIND" "$MULTIPLEXER_SESSION_NAME" > "$MULTIPLEXER_FILE"
-  if [[ "$MULTIPLEXER_KIND" == "none" ]]; then
-    echo "✓ Multiplexer auto-connect disabled."
-  else
-    echo "✓ Auto-connect to $MULTIPLEXER_KIND session '$MULTIPLEXER_SESSION_NAME' configured."
-  fi
-}
-
 configure_firewall() {
   section "Configuring firewall (ufw)..."
 
@@ -601,32 +567,6 @@ configure_shell_integration() {
   section "Applying userspace shell profile additions..."
   local shell_rcs=("$HOME/.bashrc" "$HOME/.zshrc")
 
-  # Preserve spaces and special characters in the generated session name argument.
-  local quoted_session_name=""
-  local autolaunch_snippet="# Multiplexer auto-connect disabled."
-  case "$MULTIPLEXER_KIND" in
-    tmux)
-      printf -v quoted_session_name '%q' "$MULTIPLEXER_SESSION_NAME"
-      autolaunch_snippet="$(cat <<EOF
-# Auto-launch TMUX for interactive SSH sessions.
-if [[ \$- == *i* && -t 0 && -t 1 && -z "\$TMUX" && -n "\${SSH_CONNECTION:-}" ]]; then
-  cd "\$HOME/Developer" && (tmux attach-session -t $quoted_session_name 2>/dev/null || tmux new-session -c "\$HOME/Developer" -s $quoted_session_name)
-fi
-EOF
-)"
-      ;;
-    herdr)
-      printf -v quoted_session_name '%q' "$MULTIPLEXER_SESSION_NAME"
-      autolaunch_snippet="$(cat <<EOF
-# Auto-launch Herdr for interactive SSH sessions.
-if [[ \$- == *i* && -t 0 && -t 1 && -z "\${HERDR_ENV:-}" && -n "\${SSH_CONNECTION:-}" ]]; then
-  cd "\$HOME/Developer" && herdr --session $quoted_session_name
-fi
-EOF
-)"
-      ;;
-  esac
-
   for rc in "${shell_rcs[@]}"; do
     touch "$rc"
 
@@ -654,8 +594,6 @@ alias pbcopy='xclip -selection clipboard'
 alias h='herdr'
 alias t='tmux'
 alias mup='MISE_MINIMUM_RELEASE_AGE=0 mise up'
-
-$autolaunch_snippet
 # --- End Devbox Shell Integrations ---
 EOF
   done
@@ -730,7 +668,6 @@ setup_phase() {
     onboard_git
     onboard_github
     onboard_tailscale
-    onboard_multiplexer
     if gum_confirm "Mark onboarding complete and skip these prompts next time?"; then
       touch "$ONBOARDING_DONE_MARKER"
     else
@@ -793,17 +730,9 @@ main() {
   DEVBOX_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dpuwork/devbox"
   ONBOARDING_DONE_MARKER="$DEVBOX_STATE_DIR/onboarding-done"
   SETUP_COMPLETE_MARKER="$DEVBOX_STATE_DIR/setup-complete"
-  MULTIPLEXER_FILE="$DEVBOX_STATE_DIR/multiplexer"
 
   export PATH="$DEVBOX_BIN_DIR:$PATH"
   mkdir -p "$DEVBOX_BIN_DIR" "$DEVBOX_STATE_DIR" "$HOME/.config"
-
-  # Persist the chosen multiplexer (tmux/herdr/none) and its default session name.
-  MULTIPLEXER_KIND="tmux"
-  MULTIPLEXER_SESSION_NAME="Work"
-  if [ -f "$MULTIPLEXER_FILE" ]; then
-    { read -r MULTIPLEXER_KIND; read -r MULTIPLEXER_SESSION_NAME; } < "$MULTIPLEXER_FILE"
-  fi
 
   if [[ -z "$DEVBOX_MODE" ]]; then
     if [ -f "$SETUP_COMPLETE_MARKER" ]; then

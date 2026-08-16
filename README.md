@@ -25,7 +25,7 @@ curl -fsSL https://cdn.dpuwork.com/devbox.sh | bash
 - **Networking**: SSH, Tailscale, and a ufw firewall that only allows SSH and Tailscale traffic
 - **Git**: interactive login to git and GitHub
 
-Base system packages (`git`, `ca-certificates`, `curl`, `jq`, `openssh-client`, `build-essential`, `unzip`, `zsh`, `xclip`) and Docker Engine are installed via the official apt repos; tmux is built from source. Dev tools and AI CLIs, including `herdr`, are installed through mise once those are in place. On first run, setup also walks you through logging into git and GitHub, connecting to Tailscale over SSH, and choosing whether to auto-connect to a terminal multiplexer (`tmux`, `herdr`, or none) whenever you SSH in — pick one and you'll be asked for its default session name (defaults to `Work`). Setup then configures your shell profile — `PATH`/mise activation, a `pbcopy` clipboard alias, a `tss` alias for `tailscale serve`, and the auto-connect command for your chosen multiplexer.
+Base system packages (`git`, `ca-certificates`, `curl`, `jq`, `openssh-client`, `build-essential`, `unzip`, `zsh`, `xclip`) and Docker Engine are installed via the official apt repos; tmux is built from source. Dev tools and AI CLIs, including `herdr`, are installed through mise once those are in place. On first run, setup also walks you through logging into git and GitHub and connecting to Tailscale over SSH. Setup then configures your shell profile — `PATH`/mise activation, a `pbcopy` clipboard alias, and a `tss` alias for `tailscale serve`.
 
 ## install and updates
 
