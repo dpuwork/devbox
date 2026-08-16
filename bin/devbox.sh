@@ -171,7 +171,7 @@ state_set() {
 
 install_system_dependencies() {
   section "Checking system package prerequisites..."
-  local deps=(git curl jq openssh-client build-essential unzip zsh xclip ca-certificates)
+  local deps=(git curl jq openssh-client build-essential unzip zsh ca-certificates)
 
   # Installing existing packages also upgrades them on subsequent runs.
   sudo_preflight
@@ -327,8 +327,10 @@ configure_tmux_customizations() {
   cat >>"$tmux_conf" <<'EOF'
 
 # --- Devbox TMUX Customizations ---
-# Copy the pane ID to the local clipboard via OSC 52.
-bind I run-shell "tmux set-buffer -w -- '#{pane_id}'" \; display-message "Copied pane ID #{pane_id}"
+# Copy the pane ID to the local clipboard via pbcopy (OSC 52). run-shell's
+# stdout only reaches a "view mode" overlay, not the pane's pty, so pbcopy's
+# escape sequence needs a real pty to write to; display-popup provides one.
+bind I display-popup -E -w 24 -h 3 "printf '%s' '#{pane_id}' | pbcopy" \; display-message "Copied pane ID #{pane_id}"
 # Mark Devbox sessions in the status bar.
 set -g status-left-length 40
 set -g status-left "#[fg=black,bg=green,bold] DEVBOX #[fg=black,bg=blue,bold] #S #[bg=default] "
@@ -433,7 +435,9 @@ window_title = "{hostname}: {workspace}"
 
 [[keys.command]]
 key = "prefix+shift+i"
-type = "shell"
+# type="shell" runs detached with no attached terminal, so an OSC 52 write
+# from pbcopy would have nowhere to go; type="pane" gives it a real pty.
+type = "pane"
 command = "printf '%s' \"$HERDR_ACTIVE_PANE_ID\" | pbcopy"
 description = "copy current pane id"
 EOF
@@ -580,6 +584,24 @@ configure_firewall() {
 
 configure_shell_integration() {
   section "Applying userspace shell profile additions..."
+
+  # A real script on PATH, not a shell alias/function, so it also works from
+  # non-interactive contexts (tmux run-shell, herdr custom commands) that
+  # don't source .bashrc/.zshrc. Copies stdin to the *local* clipboard via
+  # OSC 52, which works over plain SSH with no X server or X forwarding
+  # needed on the remote box (unlike xclip, which requires one).
+  cat >"$DEVBOX_BIN_DIR/pbcopy" <<'EOF'
+#!/bin/sh
+# Truncate to stay under common terminal OSC 52 payload limits (~100KB).
+data=$(head -c 74994 | base64 | tr -d '\n')
+if [ -n "$TMUX" ]; then
+  printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "$data"
+else
+  printf '\033]52;c;%s\a' "$data"
+fi
+EOF
+  chmod +x "$DEVBOX_BIN_DIR/pbcopy"
+
   local shell_rcs=("$HOME/.bashrc" "$HOME/.zshrc")
 
   for rc in "${shell_rcs[@]}"; do
@@ -605,7 +627,6 @@ if command -v mise &>/dev/null; then
 fi
 
 alias tss='tailscale serve'
-alias pbcopy='xclip -selection clipboard'
 alias h='herdr'
 alias t='tmux'
 alias mup='MISE_MINIMUM_RELEASE_AGE=0 mise up'
