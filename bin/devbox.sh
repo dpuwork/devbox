@@ -2,7 +2,7 @@
 # Native userspace Devbox provisioner.
 set -euo pipefail
 
-DEVBOX_VERSION="0.0.15"
+DEVBOX_VERSION="0.0.16"
 
 # Re-execute piped input with a terminal for interactive prompts.
 if [[ -z "${BASH_SOURCE[0]:-}" ]]; then
@@ -152,6 +152,21 @@ gum_confirm() {
   fi
 
   return "$status"
+}
+
+# Devbox state is a single JSON file at $STATE_FILE, read/written via jq.
+# state_get returns "" (without erroring) if jq or the file isn't available yet,
+# which lets it be called safely before install_system_dependencies has run.
+state_get() {
+  command -v jq &>/dev/null || return 0
+  [ -f "$STATE_FILE" ] || return 0
+  jq -r --arg k "$1" '.[$k] // empty' "$STATE_FILE" 2>/dev/null
+}
+
+state_set() {
+  local tmp
+  tmp="$(mktemp "${STATE_FILE}.XXXXXX")"
+  jq --arg k "$1" --arg v "$2" '.[$k] = $v' "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"
 }
 
 install_system_dependencies() {
@@ -664,12 +679,12 @@ install_phase() {
 }
 
 setup_phase() {
-  if [ ! -f "$ONBOARDING_DONE_MARKER" ]; then
+  if [ "$(state_get onboarding_done)" != "true" ]; then
     onboard_git
     onboard_github
     onboard_tailscale
     if gum_confirm "Mark onboarding complete and skip these prompts next time?"; then
-      touch "$ONBOARDING_DONE_MARKER"
+      state_set onboarding_done true
     else
       local status=$?
       if (( status == 130 )); then
@@ -682,8 +697,8 @@ setup_phase() {
   configure_shell_integration
   switch_to_zsh
   mkdir -p "$HOME/Developer"
-  if [ -f "$ONBOARDING_DONE_MARKER" ]; then
-    echo "$DEVBOX_VERSION" > "$SETUP_COMPLETE_MARKER"
+  if [ "$(state_get onboarding_done)" == "true" ]; then
+    state_set setup_complete_version "$DEVBOX_VERSION"
   fi
 
   section "Devbox userspace configuration successfully completed!"
@@ -728,14 +743,27 @@ main() {
 
   DEVBOX_BIN_DIR="$HOME/.local/bin"
   DEVBOX_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dpuwork/devbox"
-  ONBOARDING_DONE_MARKER="$DEVBOX_STATE_DIR/onboarding-done"
-  SETUP_COMPLETE_MARKER="$DEVBOX_STATE_DIR/setup-complete"
+  STATE_FILE="$DEVBOX_STATE_DIR/state.json"
 
   export PATH="$DEVBOX_BIN_DIR:$PATH"
   mkdir -p "$DEVBOX_BIN_DIR" "$DEVBOX_STATE_DIR" "$HOME/.config"
 
+  # One-time migration from the old per-marker-file state (onboarding-done,
+  # setup-complete) to the single state.json below. jq may not be installed
+  # yet at this point, so this is done with plain shell.
+  if [ ! -f "$STATE_FILE" ]; then
+    local legacy_onboarding_done="false" legacy_setup_version="null"
+    [ -f "$DEVBOX_STATE_DIR/onboarding-done" ] && legacy_onboarding_done="true"
+    if [ -f "$DEVBOX_STATE_DIR/setup-complete" ]; then
+      legacy_setup_version="\"$(<"$DEVBOX_STATE_DIR/setup-complete")\""
+    fi
+    printf '{"onboarding_done":%s,"setup_complete_version":%s}\n' \
+      "$legacy_onboarding_done" "$legacy_setup_version" > "$STATE_FILE"
+    rm -f "$DEVBOX_STATE_DIR/onboarding-done" "$DEVBOX_STATE_DIR/setup-complete"
+  fi
+
   if [[ -z "$DEVBOX_MODE" ]]; then
-    if [ -f "$SETUP_COMPLETE_MARKER" ]; then
+    if [ -n "$(state_get setup_complete_version)" ]; then
       DEVBOX_MODE="update"
     else
       DEVBOX_MODE="setup"
