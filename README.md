@@ -25,7 +25,7 @@ curl -fsSL https://cdn.dpuwork.com/devbox.sh | bash
 - **Networking**: SSH, Tailscale, and a ufw firewall that only allows SSH and Tailscale traffic
 - **Git**: interactive login to git and GitHub
 
-Base system packages (`git`, `ca-certificates`, `curl`, `jq`, `openssh-client`, `build-essential`, `unzip`, `zsh`, `xclip`) and Docker Engine are installed via the official apt repos; tmux is built from source. Dev tools and AI CLIs, including `herdr`, are installed through mise once those are in place. On first run, setup also walks you through logging into git and GitHub and connecting to Tailscale over SSH. Setup then configures your shell profile — `PATH`/mise activation, a `pbcopy` clipboard alias, and a `tss` alias for `tailscale serve`.
+Base system packages (`git`, `ca-certificates`, `curl`, `jq`, `openssh-client`, `build-essential`, `unzip`, `zsh`) and Docker Engine are installed via the official apt repos; tmux is built from source. Dev tools and AI CLIs, including `herdr`, are installed through mise once those are in place. On first run, setup also walks you through logging into git and GitHub and connecting to Tailscale over SSH. Setup then configures your shell profile — `PATH`/mise activation, a `pbcopy` clipboard command, and a `tss` alias for `tailscale serve`.
 
 ## install and updates
 
@@ -65,7 +65,7 @@ Devbox's herdr config (`~/.config/herdr/config.toml`) mirrors the Omaterm tmux k
 
 | Alias    | Function                                                              |
 | -------- | --------------------------------------------------------------------- |
-| `pbcopy` | Pipe stdin to the clipboard (`xclip -selection clipboard`)            |
+| `pbcopy` | Pipe stdin to the local clipboard via an OSC 52 escape sequence         |
 | `tss`    | Shortcut for [`tailscale serve`](https://tailscale.com/kb/1312/serve) |
 | `h`      | Shortcut for `herdr`                                                  |
 | `t`      | Shortcut for `tmux`                                                   |
