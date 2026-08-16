@@ -117,6 +117,26 @@ gum_input_into() {
 }
 
 
+gum_choose_into() {
+  local -n target="$1"
+  local value status
+  shift
+
+  set +e
+  trap : INT
+  value="$(gum choose "$@" </dev/tty)"
+  status=$?
+  trap - INT
+  set -e
+
+  if (( status != 0 )); then
+    target=""
+    finish_from_interrupt
+  fi
+
+  target="$value"
+}
+
 gum_confirm() {
   local status interrupted=0
 
@@ -302,6 +322,110 @@ EOF
   echo "✓ TMUX customizations applied to $tmux_conf"
 }
 
+configure_herdr_customizations() {
+  section "Applying Herdr customizations..."
+
+  local herdr_conf="$HOME/.config/herdr/config.toml"
+  mkdir -p "$HOME/.config/herdr"
+
+  cat >"$herdr_conf" <<'EOF'
+# Managed by Devbox; re-run devbox.sh to reapply after editing.
+onboarding = false
+# Mirrors the Omarchy tmux config in config/tmux/tmux.conf
+# tmux session -> herdr workspace, tmux window -> herdr tab, tmux pane -> herdr pane
+
+[theme]
+# tmux ran on the terminal's own palette (bg=default, fg=default, ANSI blue accents)
+name = "terminal"
+
+auto_switch = true
+[theme.custom]
+# The active tab is drawn as panel_bg text on an accent background; "reset" lets
+# herdr pick contrast automatically instead of a literal tuned for one mode
+panel_bg = "black"
+
+[terminal]
+# Matches -c "#{pane_current_path}" on every split, window, and session
+new_cwd = "follow"
+
+[keys]
+# Config and help
+reload_config = "prefix+q"
+help = "prefix+?"
+detach = "prefix+d"
+
+# Copy mode
+copy_mode = "prefix+["
+
+# Panes
+split_horizontal = ["prefix+h", "alt+enter"]
+split_vertical = ["prefix+v", "alt+shift+enter"]
+close_pane = ["prefix+x", "alt+esc"]
+zoom = "prefix+z"
+last_pane = "prefix+;"
+
+focus_pane_left = "ctrl+alt+left"
+focus_pane_down = "ctrl+alt+down"
+focus_pane_up = "ctrl+alt+up"
+focus_pane_right = "ctrl+alt+right"
+
+resize_mode = ["prefix+ctrl+left", "prefix+ctrl+down", "prefix+ctrl+up", "prefix+ctrl+right"]
+
+# No tmux equivalent; herdr's default prefix+shift+p is taken by previous session
+rename_pane = "prefix+shift+o"
+
+# Windows -> tabs
+new_tab = "prefix+c"
+rename_tab = "prefix+r"
+close_tab = "prefix+k"
+switch_tab = ["prefix+1..9", "alt+1..9"]
+previous_tab = ["prefix+p", "alt+left"]
+next_tab = ["prefix+n", "alt+right"]
+
+# Sessions -> workspaces
+new_workspace = "prefix+shift+c"
+rename_workspace = "prefix+shift+r"
+close_workspace = "prefix+shift+k"
+previous_workspace = ["prefix+shift+p", "alt+up"]
+next_workspace = ["prefix+shift+n", "alt+down"]
+
+[ui]
+accent = "blue"
+
+# tmux drew single-line dividers between adjacent panes and no outer frame
+pane_gaps = false
+pane_borders = true
+
+# tmux had no scrollbar column beside its panes
+pane_scrollbars = false
+
+# kill-window and kill-session never asked
+confirm_close = false
+
+# automatic-rename gave windows a name without prompting
+prompt_new_tab_name = false
+
+# set -g mouse on
+mouse_capture = true
+
+# status-right had the zoom flag followed by #h
+tab_bar_right = [{ type = "zoom" }, { type = "hostname" }]
+
+# set -g set-titles on / set -g set-titles-string '#h:#W', where tmux's #W was
+# the basename of the pane cwd. This is what Hyprland shows in the group bar,
+# and it resolves on the server so remote sessions name the remote host.
+window_title = "{hostname}: {workspace}"
+
+[[keys.command]]
+key = "prefix+shift+i"
+type = "shell"
+command = "printf '%s' \"$HERDR_ACTIVE_PANE_ID\" | pbcopy"
+description = "copy current pane id"
+EOF
+
+  echo "✓ Herdr customizations applied to $herdr_conf"
+}
+
 install_mise_and_tools() {
   section "Checking Mise runtime manager..."
   if ! command -v mise &>/dev/null; then
@@ -321,16 +445,27 @@ install_mise_and_tools() {
 
   section "Ensuring standard terminal tools and AI shims..."
 
-  run_with_spinner "Installing core terminal utilities (neovim, python, node, lazygit, fzf, etc.)..." mise use -g -y neovim starship eza zoxide fzf gh lazygit lazydocker btop fastfetch node python
+  run_with_spinner "Installing core terminal utilities (neovim, python, node, lazygit, fzf, etc.)..." mise use -g -y neovim starship eza zoxide fzf gh lazygit lazydocker btop fastfetch node python herdr
 
   run_with_spinner "Installing AI tooling and devbox shims (claude-code, codex, tuicr)..." \
-    mise use -g -y opencode claude-code codex antigravity-cli github:agavra/tuicr
+    mise use -g -y opencode claude-code codex antigravity-cli github:agavra/tuicr npm:skills
 
   # Upgrade globally from $HOME so a project-local mise.toml is not modified.
   run_with_spinner "Upgrading installed tools to their latest versions..." \
     bash -c 'cd "$HOME" && mise upgrade -y'
 
   run_with_spinner "Finalizing tools configuration..." bash -c 'mise reshim && mise install'
+}
+
+install_agent_skills() {
+  section "Installing agent skills (tmux, herdr)..."
+
+  run_with_spinner "Installing tmux skill (openclaw/openclaw)..." \
+    skills add https://github.com/openclaw/openclaw --skill tmux -g -y
+  run_with_spinner "Installing herdr skill (herdrdev/herdr)..." \
+    skills add https://github.com/herdrdev/herdr --skill herdr -g -y
+
+  echo "✓ Agent skills installed."
 }
 
 onboard_git() {
@@ -403,17 +538,38 @@ onboard_tailscale() {
   fi
 }
 
-onboard_tmux_session() {
-  if [ -f "$TMUX_SESSION_FILE" ]; then
-    echo "✓ Default tmux session name already configured ('$TMUX_SESSION_NAME')."
+onboard_multiplexer() {
+  if [ -f "$MULTIPLEXER_FILE" ]; then
+    if [[ "$MULTIPLEXER_KIND" == "none" ]]; then
+      echo "✓ Multiplexer auto-connect already configured (none)."
+    else
+      echo "✓ Multiplexer auto-connect already configured ($MULTIPLEXER_KIND, session '$MULTIPLEXER_SESSION_NAME')."
+    fi
     return 0
   fi
 
-  local name="$TMUX_SESSION_NAME"
-  gum_input_into name --prompt "[tmux] default session name: " --value "$name"
-  TMUX_SESSION_NAME="${name:-Work}"
-  echo "$TMUX_SESSION_NAME" > "$TMUX_SESSION_FILE"
-  echo "✓ Default tmux session set to '$TMUX_SESSION_NAME'."
+  local choice=""
+  gum_choose_into choice tmux herdr none --header "Auto-connect to a terminal multiplexer when you SSH in?"
+
+  case "$choice" in
+    tmux|herdr)
+      local name="$MULTIPLEXER_SESSION_NAME"
+      gum_input_into name --prompt "[$choice] default session name: " --value "$name"
+      MULTIPLEXER_KIND="$choice"
+      MULTIPLEXER_SESSION_NAME="${name:-Work}"
+      ;;
+    *)
+      MULTIPLEXER_KIND="none"
+      MULTIPLEXER_SESSION_NAME=""
+      ;;
+  esac
+
+  printf '%s\n%s\n' "$MULTIPLEXER_KIND" "$MULTIPLEXER_SESSION_NAME" > "$MULTIPLEXER_FILE"
+  if [[ "$MULTIPLEXER_KIND" == "none" ]]; then
+    echo "✓ Multiplexer auto-connect disabled."
+  else
+    echo "✓ Auto-connect to $MULTIPLEXER_KIND session '$MULTIPLEXER_SESSION_NAME' configured."
+  fi
 }
 
 configure_firewall() {
@@ -445,9 +601,31 @@ configure_shell_integration() {
   section "Applying userspace shell profile additions..."
   local shell_rcs=("$HOME/.bashrc" "$HOME/.zshrc")
 
-  # Preserve spaces and special characters in the generated tmux argument.
-  local quoted_session_name
-  printf -v quoted_session_name '%q' "$TMUX_SESSION_NAME"
+  # Preserve spaces and special characters in the generated session name argument.
+  local quoted_session_name=""
+  local autolaunch_snippet="# Multiplexer auto-connect disabled."
+  case "$MULTIPLEXER_KIND" in
+    tmux)
+      printf -v quoted_session_name '%q' "$MULTIPLEXER_SESSION_NAME"
+      autolaunch_snippet="$(cat <<EOF
+# Auto-launch TMUX for interactive SSH sessions.
+if [[ \$- == *i* && -t 0 && -t 1 && -z "\$TMUX" && -n "\${SSH_CONNECTION:-}" ]]; then
+  cd "\$HOME/Developer" && (tmux attach-session -t $quoted_session_name 2>/dev/null || tmux new-session -c "\$HOME/Developer" -s $quoted_session_name)
+fi
+EOF
+)"
+      ;;
+    herdr)
+      printf -v quoted_session_name '%q' "$MULTIPLEXER_SESSION_NAME"
+      autolaunch_snippet="$(cat <<EOF
+# Auto-launch Herdr for interactive SSH sessions.
+if [[ \$- == *i* && -t 0 && -t 1 && -z "\${HERDR_ENV:-}" && -n "\${SSH_CONNECTION:-}" ]]; then
+  cd "\$HOME/Developer" && herdr --session $quoted_session_name
+fi
+EOF
+)"
+      ;;
+  esac
 
   for rc in "${shell_rcs[@]}"; do
     touch "$rc"
@@ -471,14 +649,13 @@ if command -v mise &>/dev/null; then
   eval "\$(mise activate $sh_name)"
 fi
 
-alias pbcopy='xclip -selection clipboard'
-
 alias tss='tailscale serve'
+alias pbcopy='xclip -selection clipboard'
+alias h='herdr'
+alias t='tmux'
+alias mup='MISE_MINIMUM_RELEASE_AGE=0 mise up'
 
-# Auto-launch TMUX for interactive SSH sessions.
-if [[ \$- == *i* && -t 0 && -t 1 && -z "\$TMUX" && -n "\${SSH_CONNECTION:-}" ]]; then
-  cd "\$HOME/Developer" && (tmux attach-session -t $quoted_session_name 2>/dev/null || tmux new-session -c "\$HOME/Developer" -s $quoted_session_name)
-fi
+$autolaunch_snippet
 # --- End Devbox Shell Integrations ---
 EOF
   done
@@ -543,7 +720,9 @@ install_phase() {
   install_docker_engine
   install_omadots
   configure_tmux_customizations
+  configure_herdr_customizations
   install_mise_and_tools
+  install_agent_skills
 }
 
 setup_phase() {
@@ -551,7 +730,7 @@ setup_phase() {
     onboard_git
     onboard_github
     onboard_tailscale
-    onboard_tmux_session
+    onboard_multiplexer
     if gum_confirm "Mark onboarding complete and skip these prompts next time?"; then
       touch "$ONBOARDING_DONE_MARKER"
     else
@@ -578,29 +757,6 @@ update_phase() {
   configure_shell_integration
   section "Devbox components updated successfully!"
   echo -e "\033[1;32m✓ Update finished. Reloading your shell to load changes...\033[0m"
-}
-
-migrate_legacy_state() {
-  local legacy_state_dir="$HOME/.local/state/devbox"
-  local legacy_setup_cache="$legacy_state_dir/devbox.sh"
-
-  # Only migrate state that contains the previous Devbox installer signature;
-  # ~/.local/state/devbox is too generic to trust blindly.
-  if [ ! -f "$legacy_setup_cache" ] || ! grep -q "Native userspace Devbox provisioner" "$legacy_setup_cache"; then
-    return 0
-  fi
-
-  if [ ! -f "$ONBOARDING_DONE_MARKER" ] && [ -f "$legacy_state_dir/setup-done" ]; then
-    cp "$legacy_state_dir/setup-done" "$ONBOARDING_DONE_MARKER"
-  fi
-
-  if [ ! -f "$TMUX_SESSION_FILE" ] && [ -f "$legacy_state_dir/tmux-session" ]; then
-    cp "$legacy_state_dir/tmux-session" "$TMUX_SESSION_FILE"
-  fi
-
-  if [ -f "$legacy_state_dir/setup-done" ] && [ -f "$legacy_state_dir/tmux-session" ]; then
-    echo "$DEVBOX_VERSION" > "$SETUP_COMPLETE_MARKER"
-  fi
 }
 
 main() {
@@ -637,16 +793,16 @@ main() {
   DEVBOX_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dpuwork/devbox"
   ONBOARDING_DONE_MARKER="$DEVBOX_STATE_DIR/onboarding-done"
   SETUP_COMPLETE_MARKER="$DEVBOX_STATE_DIR/setup-complete"
-  TMUX_SESSION_FILE="$DEVBOX_STATE_DIR/tmux-session"
+  MULTIPLEXER_FILE="$DEVBOX_STATE_DIR/multiplexer"
 
   export PATH="$DEVBOX_BIN_DIR:$PATH"
   mkdir -p "$DEVBOX_BIN_DIR" "$DEVBOX_STATE_DIR" "$HOME/.config"
-  migrate_legacy_state
 
-  # Persist the tmux session name used for SSH auto-attach.
-  TMUX_SESSION_NAME="Work"
-  if [ -f "$TMUX_SESSION_FILE" ]; then
-    TMUX_SESSION_NAME="$(cat "$TMUX_SESSION_FILE")"
+  # Persist the chosen multiplexer (tmux/herdr/none) and its default session name.
+  MULTIPLEXER_KIND="tmux"
+  MULTIPLEXER_SESSION_NAME="Work"
+  if [ -f "$MULTIPLEXER_FILE" ]; then
+    { read -r MULTIPLEXER_KIND; read -r MULTIPLEXER_SESSION_NAME; } < "$MULTIPLEXER_FILE"
   fi
 
   if [[ -z "$DEVBOX_MODE" ]]; then
