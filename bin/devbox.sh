@@ -2,7 +2,7 @@
 # Native userspace Devbox provisioner.
 set -euo pipefail
 
-DEVBOX_VERSION="0.0.16"
+DEVBOX_VERSION="0.0.17"
 
 # Re-execute piped input with a terminal for interactive prompts.
 if [[ -z "${BASH_SOURCE[0]:-}" ]]; then
@@ -747,20 +747,7 @@ main() {
 
   export PATH="$DEVBOX_BIN_DIR:$PATH"
   mkdir -p "$DEVBOX_BIN_DIR" "$DEVBOX_STATE_DIR" "$HOME/.config"
-
-  # One-time migration from the old per-marker-file state (onboarding-done,
-  # setup-complete) to the single state.json below. jq may not be installed
-  # yet at this point, so this is done with plain shell.
-  if [ ! -f "$STATE_FILE" ]; then
-    local legacy_onboarding_done="false" legacy_setup_version="null"
-    [ -f "$DEVBOX_STATE_DIR/onboarding-done" ] && legacy_onboarding_done="true"
-    if [ -f "$DEVBOX_STATE_DIR/setup-complete" ]; then
-      legacy_setup_version="\"$(<"$DEVBOX_STATE_DIR/setup-complete")\""
-    fi
-    printf '{"onboarding_done":%s,"setup_complete_version":%s}\n' \
-      "$legacy_onboarding_done" "$legacy_setup_version" > "$STATE_FILE"
-    rm -f "$DEVBOX_STATE_DIR/onboarding-done" "$DEVBOX_STATE_DIR/setup-complete"
-  fi
+  [ -f "$STATE_FILE" ] || echo '{}' > "$STATE_FILE"
 
   if [[ -z "$DEVBOX_MODE" ]]; then
     if [ -n "$(state_get setup_complete_version)" ]; then
