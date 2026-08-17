@@ -61,6 +61,8 @@ The base tmux/Neovim/shell keybindings come from Omadots (see the [Omaterm manua
 
 Devbox's herdr config (`~/.config/herdr/config.toml`) mirrors the Omaterm tmux keymap term-for-term (tmux session → herdr workspace, window → tab, pane → pane), so the rest of your tmux muscle memory carries over.
 
+If you attach with `herdr --remote <ssh-target>`, custom commands like `Prefix Shift-I` use your **local** machine's `config.toml` by default, not Devbox's — so this box's binding is silently skipped and nothing gets copied. Attach with `herdr --remote <ssh-target> --remote-keybindings server` to use Devbox's config instead.
+
 ### aliases
 
 | Alias    | Function                                                              |
