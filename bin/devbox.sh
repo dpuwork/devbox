@@ -171,7 +171,7 @@ state_set() {
 
 install_system_dependencies() {
   section "Checking system package prerequisites..."
-  local deps=(git curl jq openssh-client build-essential unzip zsh ca-certificates)
+  local deps=(git curl jq openssh-client build-essential unzip zsh ca-certificates mosh)
 
   # Installing existing packages also upgrades them on subsequent runs.
   sudo_preflight

@@ -22,7 +22,7 @@ curl -fsSL https://cdn.dpuwork.com/devbox.sh | bash
 - **Editor**: Neovim ([LazyVim](https://www.lazyvim.org))
 - **Agents**: `opencode`, `claude-code`, `codex`, `antigravity-cli`, [`tuicr`](https://github.com/agavra/tuicr), with the `tmux` and `herdr` [agent skills](https://skills.sh/) installed globally
 - **Dev tools**: [mise](https://mise.jdx.dev), Docker Engine, `starship`, `eza`, `zoxide`, `fzf`, `gh`, `lazygit`, `lazydocker`, `btop`, `fastfetch`, `node`, `python`, [gum](https://github.com/charmbracelet/gum), [herdr](https://herdr.dev)
-- **Networking**: SSH, Tailscale, and a ufw firewall that only allows SSH and Tailscale traffic
+- **Networking**: SSH, Tailscale, [mosh](https://mosh.org), and a ufw firewall that only allows SSH and Tailscale traffic
 - **Git**: interactive login to git and GitHub
 
 Base system packages (`git`, `ca-certificates`, `curl`, `jq`, `openssh-client`, `build-essential`, `unzip`, `zsh`) and Docker Engine are installed via the official apt repos; tmux is built from source. Dev tools and AI CLIs, including `herdr`, are installed through mise once those are in place. On first run, setup also walks you through logging into git and GitHub and connecting to Tailscale over SSH. Setup then configures your shell profile — `PATH`/mise activation, a `pbcopy` clipboard command, and a `tss` alias for `tailscale serve`.
@@ -38,6 +38,25 @@ curl -fsSL https://cdn.dpuwork.com/devbox.sh | bash
 The first run performs onboarding and reloads the shell. Later interactive runs skip onboarding, update the installation, and automatically start a fresh shell with the updated configuration.
 
 Devbox stores its configuration under `~/.local/state/dpuwork/devbox`.
+
+## connecting from your machine
+
+Devbox installs [mosh](https://mosh.org) on the box, but mosh has to be installed on your local machine too (`brew install mosh` on macOS, or your distro's package manager). Connect over the tailnet with:
+
+```bash
+mosh <user>@<devbox-hostname>
+```
+
+Mosh predicts your keystrokes locally and reconciles in the background, so typing stays responsive even on a high-latency link. It rides over the same Tailscale connection SSH already uses, so no extra firewall changes are needed.
+
+For plain SSH sessions (including tools like `herdr --remote` that shell out to `ssh`), add `ControlMaster`/`ControlPersist` to your local `~/.ssh/config` so repeat connections reuse one already-authenticated socket instead of paying the full handshake every time:
+
+```
+Host <devbox-hostname>
+  ControlMaster auto
+  ControlPath ~/.ssh/control-%r@%h:%p
+  ControlPersist 10m
+```
 
 ## shortcuts
 
